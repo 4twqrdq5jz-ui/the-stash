@@ -1,8 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
-
+/* ======================
+   GLOBAL RESET
+====================== */
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
@@ -13,17 +12,22 @@ body {
   padding: 0;
 }
 
+/* ======================
+   NAVBAR
+====================== */
 .navbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   height: 60px;
-  padding: 15px;
-  background-color: white;
+  padding: 0 16px;
+  background-color: #ffffff;
   position: fixed;
   top: 0;
-  width: 100%;
+  left: 0;
+  right: 0;
   z-index: 1000;
+  border-bottom: 1px solid #ddd;
 }
 
 .nav-section {
@@ -32,90 +36,121 @@ body {
 }
 
 .nav-left {
-  margin-left: 15px;
+  gap: 12px;
 }
 
 .nav-center {
   flex: 1;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 .nav-right {
-  margin-right: 15px;
+  gap: 16px;
 }
 
 .logo-image {
-  width: 100px;
+  width: 90px;
+  cursor: pointer;
 }
 
 .search-input {
   width: 100%;
-  padding: 10px;
+  padding: 8px 12px;
   border: 1px solid #ddd;
-  border-radius: 5px;
+  border-radius: 40px;
+  font-size: 14px;
+  outline: none;
 }
 
+/* ======================
+   MAIN LAYOUT
+====================== */
 .main-layout {
   display: flex;
-  height: calc(100vh - 70px);
+  margin-top: 60px; /* FIXED NAV OFFSET */
+  height: calc(100vh - 60px);
 }
 
+/* ======================
+   SIDEBAR
+====================== */
 .sidebar {
-  width: 250px;
-  background-color: white;
+  width: 240px;
+  background-color: #ffffff;
   border-right: 1px solid #ddd;
   overflow-y: auto;
 }
 
 .links-container {
-  padding: 15px;
+  padding: 12px;
 }
 
 .link-item {
   display: flex;
   align-items: center;
-  padding: 10px;
+  gap: 16px;
+  padding: 10px 12px;
   text-decoration: none;
-  color: black;
+  color: #000;
+  font-size: 14px;
+  border-radius: 10px;
 }
 
 .link-item:hover {
-  background-color: #f0f0f0;
+  background-color: #f2f2f2;
 }
 
+/* ======================
+   CONTENT
+====================== */
 .content {
   flex: 1;
-  padding: 15px;
+  padding: 24px;
+  overflow-y: auto;
   background-color: #f9f9f9;
 }
 
+/* ======================
+   VIDEO GRID
+====================== */
 .videos {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
 }
 
 .video {
-  width: 270px;
-  margin-bottom: 30px;
-  background-color: white;
-  border-radius: 5px;
+  background-color: #ffffff;
+  border-radius: 12px;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .video img {
   width: 100%;
+  display: block;
 }
 
 .video .details {
-  padding: 10px;
+  padding: 12px;
+}
+
+.video .details .author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .video .details .author img {
-  width: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  vertical-align: middle;
 }
 
 .video .details .title {
-  margin-left: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 6px;
+  line-height: 1.4;
 }
