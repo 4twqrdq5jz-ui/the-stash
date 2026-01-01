@@ -6,11 +6,17 @@
   <title>The Stash</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="manifest" href="manifest.json">
+  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-database.js"></script>
+  <!-- Icons -->
+  <link href="https://unicons.iconscout.com/release/v4.0.0/css/line.css" rel="stylesheet">
 </head>
 <body>
+  <!-- ======================
+       NAVBAR
+  ====================== -->
   <header>
     <nav class="navbar">
       <div class="nav-section nav-left">
@@ -26,7 +32,7 @@
       <div class="nav-section nav-center">
         <form action="#" class="search-form">
           <input type="search" placeholder="Search" class="search-input" required>
-          <button class="nav-button search-button">
+          <button type="submit" class="nav-button search-button">
             <i class="uil uil-search"></i>
           </button>
         </form>
@@ -41,36 +47,43 @@
     </nav>
   </header>
 
+  <!-- ======================
+       MAIN LAYOUT
+  ====================== -->
   <main class="main-layout">
+    <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="nav-section nav-left">
-        <button class="nav-button menu-button">
-          <i class="uil uil-bars"></i>
-        </button>
-        <a href="#" class="nav-logo">
-          <img src="assets/logo.png" alt="Logo" class="logo-image">
-          <h2 class="logo-text">The Stash</h2>
-        </a>
-      </div>
-
       <div class="links-container">
         <div class="link-section">
-          <a href="#" class="link-item"> <i class="uil uil-estate"></i> Home </a>
-          <a href="#" class="link-item"> <i class="uil uil-video"></i> Shorts </a>
-          <a href="#" class="link-item"> <i class="uil uil-tv-retro"></i> Subscriptions </a>
+          <a href="#" class="link-item"><i class="uil uil-estate"></i> Home</a>
+          <a href="#" class="link-item"><i class="uil uil-video"></i> Shorts</a>
+          <a href="#" class="link-item"><i class="uil uil-tv-retro"></i> Subscriptions</a>
         </div>
+
         <div class="section-separator"></div>
+
         <div class="link-section">
           <h4 class="section-title">Library</h4>
-          <a href="#" class="link-item"> <i class="uil uil-history"></i> History </a>
-          <a href="#" class="link-item"> <i class="uil uil-play-circle"></i> Watch Later </a>
+          <a href="#" class="link-item"><i class="uil uil-history"></i> History</a>
+          <a href="#" class="link-item"><i class="uil uil-play-circle"></i> Watch Later</a>
         </div>
       </div>
     </aside>
 
+    <!-- Main Content -->
     <section class="content">
       <div class="videos">
-        <!-- Video items will be dynamically loaded here -->
+        <!-- Example Video Item -->
+        <div class="video">
+          <img src="assets/video-thumb.jpg" alt="Video Thumbnail">
+          <div class="details">
+            <div class="author">
+              <img src="assets/user.jpg" alt="Author">
+              <span class="title">Video Title Here</span>
+            </div>
+          </div>
+        </div>
+        <!-- Additional video items will be dynamically loaded via JS -->
       </div>
     </section>
   </main>
