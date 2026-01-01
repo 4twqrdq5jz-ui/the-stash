@@ -6,29 +6,74 @@
   <title>The Stash</title>
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
+  <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-database.js"></script>
 </head>
 <body>
   <header>
-    <h1>The Stash</h1>
-    <nav>
-      <ul>
-        <li><a href="index.html">Home</a></li>
-        <li><a href="videos.html">Videos</a></li>
-        <li><a href="profile.html">Profile</a></li>
-      </ul>
+    <nav class="navbar">
+      <div class="nav-section nav-left">
+        <button class="nav-button menu-button">
+          <i class="uil uil-bars"></i>
+        </button>
+        <a href="#" class="nav-logo">
+          <img src="images/logo.png" alt="Logo" class="logo-image">
+          <h2 class="logo-text">The Stash</h2>
+        </a>
+      </div>
+
+      <div class="nav-section nav-center">
+        <form action="#" class="search-form">
+          <input type="search" placeholder="Search" class="search-input" required>
+          <button class="nav-button search-button">
+            <i class="uil uil-search"></i>
+          </button>
+        </form>
+      </div>
+
+      <div class="nav-section nav-right">
+        <button class="nav-button theme-button">
+          <i class="uil uil-moon"></i>
+        </button>
+        <img src="images/user.jpg" alt="User Image" class="user-image">
+      </div>
     </nav>
   </header>
 
-  <main>
-    <section>
-      <h2>Welcome to The Stash</h2>
-      <p>Your go-to place for all your favorite videos.</p>
+  <main class="main-layout">
+    <aside class="sidebar">
+      <div class="nav-section nav-left">
+        <button class="nav-button menu-button">
+          <i class="uil uil-bars"></i>
+        </button>
+        <a href="#" class="nav-logo">
+          <img src="images/logo.png" alt="Logo" class="logo-image">
+          <h2 class="logo-text">The Stash</h2>
+        </a>
+      </div>
+
+      <div class="links-container">
+        <div class="link-section">
+          <a href="#" class="link-item"> <i class="uil uil-estate"></i> Home </a>
+          <a href="#" class="link-item"> <i class="uil uil-video"></i> Shorts </a>
+          <a href="#" class="link-item"> <i class="uil uil-tv-retro"></i> Subscriptions </a>
+        </div>
+        <div class="section-separator"></div>
+        <div class="link-section">
+          <h4 class="section-title">Library</h4>
+          <a href="#" class="link-item"> <i class="uil uil-history"></i> History </a>
+          <a href="#" class="link-item"> <i class="uil uil-play-circle"></i> Watch Later </a>
+        </div>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="videos">
+        <!-- Video items will be dynamically loaded here -->
+      </div>
     </section>
   </main>
-
-  <footer>
-    <p>&copy; 2026 The Stash</p>
-  </footer>
 
   <script src="app.js"></script>
 </body>
