@@ -5,29 +5,40 @@
   box-sizing: border-box;
 }
 
+:root {
+  --bg-main: #0f0f0f;        /* Netflix black */
+  --bg-surface: #181818;    /* YouTube dark */
+  --bg-hover: #272727;
+  --border-subtle: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #aaaaaa;
+  --accent-red: #e50914;    /* Netflix red */
+}
+
 body {
   font-family: 'Roboto', sans-serif;
-  background-color: #f9f9f9;
+  background-color: var(--bg-main);
   margin: 0;
   padding: 0;
+  color: var(--text-primary);
 }
 
 /* ======================
-   NAVBAR
+   NAVBAR (YouTube-style)
 ====================== */
 .navbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 60px;
-  padding: 0 16px;
-  background-color: #ffffff;
+  height: 64px;
+  padding: 0 20px;
+  background-color: var(--bg-surface);
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 1000;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .nav-section {
@@ -36,7 +47,7 @@ body {
 }
 
 .nav-left {
-  gap: 12px;
+  gap: 14px;
 }
 
 .nav-center {
@@ -46,21 +57,27 @@ body {
 }
 
 .nav-right {
-  gap: 16px;
+  gap: 18px;
 }
 
 .logo-image {
-  width: 90px;
+  width: 96px;
   cursor: pointer;
 }
 
 .search-input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 40px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background-color: #121212;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
   font-size: 14px;
   outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--text-secondary);
 }
 
 /* ======================
@@ -68,78 +85,96 @@ body {
 ====================== */
 .main-layout {
   display: flex;
-  margin-top: 60px; /* FIXED NAV OFFSET */
-  height: calc(100vh - 60px);
+  margin-top: 64px;
+  height: calc(100vh - 64px);
 }
 
 /* ======================
-   SIDEBAR
+   SIDEBAR (Netflix clean)
 ====================== */
 .sidebar {
   width: 240px;
-  background-color: #ffffff;
-  border-right: 1px solid #ddd;
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
   overflow-y: auto;
 }
 
 .links-container {
-  padding: 12px;
+  padding: 16px 12px;
 }
 
 .link-item {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 10px 12px;
+  gap: 18px;
+  padding: 12px 14px;
   text-decoration: none;
-  color: #000;
+  color: var(--text-primary);
   font-size: 14px;
-  border-radius: 10px;
+  border-radius: 12px;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
 .link-item:hover {
-  background-color: #f2f2f2;
+  background-color: var(--bg-hover);
+  transform: translateX(2px);
+}
+
+.link-item.active {
+  background-color: var(--bg-hover);
+  font-weight: 500;
 }
 
 /* ======================
-   CONTENT
+   CONTENT AREA
 ====================== */
 .content {
   flex: 1;
-  padding: 24px;
+  padding: 28px;
   overflow-y: auto;
-  background-color: #f9f9f9;
+  background-color: var(--bg-main);
 }
 
 /* ======================
-   VIDEO GRID
+   VIDEO GRID (Netflix cards)
 ====================== */
 .videos {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  gap: 20px;
 }
 
 .video {
-  background-color: #ffffff;
-  border-radius: 12px;
+  background-color: var(--bg-surface);
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.video:hover {
+  transform: scale(1.04);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
 }
 
 .video img {
   width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
   display: block;
 }
 
+/* ======================
+   VIDEO DETAILS
+====================== */
 .video .details {
-  padding: 12px;
+  padding: 14px;
 }
 
 .video .details .author {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .video .details .author img {
@@ -151,6 +186,29 @@ body {
 .video .details .title {
   font-size: 14px;
   font-weight: 500;
-  margin-top: 6px;
+  margin-top: 8px;
   line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.video .details .meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* ======================
+   SCROLLBAR (Netflix feel)
+====================== */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
