@@ -1,93 +1,128 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The Stash</title>
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="manifest" href="manifest.json">
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-database.js"></script>
-  <!-- Icons -->
-  <link href="https://unicons.iconscout.com/release/v4.0.0/css/line.css" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>THESTASH.GAY — Launching Soon</title>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Inter:wght@300;400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --accent: #7a4a3a;
+      --text-soft: #8a6a5c;
+      --overlay: rgba(255, 255, 255, 0.55);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Inter', sans-serif;
+      background:
+        linear-gradient(var(--overlay), var(--overlay)),
+        url("E0D6D0FA-1A83-4CAE-8D4C-C8BFC910BEB6.jpeg") center / cover no-repeat;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .container {
+      padding: 3rem 2rem;
+      max-width: 520px;
+      width: 100%;
+    }
+
+    .brand {
+      font-size: 0.75rem;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+      margin-bottom: 3rem;
+    }
+
+    h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.6rem, 5vw, 3.3rem);
+      font-weight: 500;
+      color: var(--accent);
+      margin: 0 0 1.5rem;
+    }
+
+    p {
+      font-size: 0.95rem;
+      color: var(--text-soft);
+      line-height: 1.6;
+      margin: 0 0 3rem;
+    }
+
+    .icons {
+      display: flex;
+      justify-content: center;
+      gap: 2.2rem;
+    }
+
+    .icons a {
+      color: var(--accent);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-svg {
+      width: 22px;
+      height: 22px;
+      display: block;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .icons a:hover .icon-svg {
+      opacity: 0.6;
+      transform: translateY(-1px) scale(1.05);
+    }
+
+    footer {
+      position: fixed;
+      bottom: 1.2rem;
+      width: 100%;
+      text-align: center;
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      color: var(--text-soft);
+    }
+  </style>
 </head>
 <body>
-  <!-- ======================
-       NAVBAR
-  ====================== -->
-  <header>
-    <nav class="navbar">
-      <div class="nav-section nav-left">
-        <button class="nav-button menu-button">
-          <i class="uil uil-bars"></i>
-        </button>
-        <a href="#" class="nav-logo">
-          <img src="assets/logo.png" alt="Logo" class="logo-image">
-          <h2 class="logo-text">The Stash</h2>
-        </a>
-      </div>
 
-      <div class="nav-section nav-center">
-        <form action="#" class="search-form">
-          <input type="search" placeholder="Search" class="search-input" required>
-          <button type="submit" class="nav-button search-button">
-            <i class="uil uil-search"></i>
-          </button>
-        </form>
-      </div>
+  <div class="container">
+    <div class="brand">THESTASH.GAY</div>
 
-      <div class="nav-section nav-right">
-        <button class="nav-button theme-button">
-          <i class="uil uil-moon"></i>
-        </button>
-        <img src="assets/user.jpg" alt="User Image" class="user-image">
-      </div>
-    </nav>
-  </header>
+    <h1>Launching soon!</h1>
 
-  <!-- ======================
-       MAIN LAYOUT
-  ====================== -->
-  <main class="main-layout">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="links-container">
-        <div class="link-section">
-          <a href="#" class="link-item"><i class="uil uil-estate"></i> Home</a>
-          <a href="#" class="link-item"><i class="uil uil-video"></i> Shorts</a>
-          <a href="#" class="link-item"><i class="uil uil-tv-retro"></i> Subscriptions</a>
-        </div>
+    <p>
+      We are currently making some<br />
+      improvements to our website!
+    </p>
 
-        <div class="section-separator"></div>
+    <div class="icons">
+      <a href="https://bsky.app/profile/daphuq.bsky.social" aria-label="BlueSky">
+        <img src="bluesky.svg" alt="BlueSky" class="icon-svg">
+      </a>
 
-        <div class="link-section">
-          <h4 class="section-title">Library</h4>
-          <a href="#" class="link-item"><i class="uil uil-history"></i> History</a>
-          <a href="#" class="link-item"><i class="uil uil-play-circle"></i> Watch Later</a>
-        </div>
-      </div>
-    </aside>
+      <a href="https://x.com/daphuq_?s=21" aria-label="X">
+        <img src="x.svg" alt="X" class="icon-svg">
+      </a>
+    </div>
+  </div>
 
-    <!-- Main Content -->
-    <section class="content">
-      <div class="videos">
-        <!-- Example Video Item -->
-        <div class="video">
-          <img src="https://via.placeholder.com/270x150?text=Video+Thumbnail" alt="Video Thumbnail">
-          <div class="details">
-            <div class="author">
-              <img src="assets/user.jpg" alt="Author">
-              <span class="title">Video Title Here</span>
-            </div>
-          </div>
-        </div>
-        <!-- Additional video items will be dynamically loaded via JS -->
-      </div>
-    </section>
-  </main>
+  <footer>
+    © 2026 THE STASH
+  </footer>
 
-  <script src="app.js"></script>
 </body>
 </html>
