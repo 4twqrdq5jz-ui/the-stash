@@ -1440,6 +1440,7 @@
 
             const filterCheckboxes = filterDropdown.querySelectorAll('input[type="checkbox"]');
             const applyButton = filterDropdown.querySelector('.filter-apply-button');
+            const resetButton = filterDropdown.querySelector('.filter-reset-button');
 
             function updateFilterCount() {
                 if (!filterCountBadge) return;
@@ -1447,13 +1448,70 @@
                 filterCountBadge.textContent = selected.toString();
             }
 
+            function getFilterState() {
+                const sortActive = filterDropdown.querySelector('.sort-section .filter-tag.active');
+                const sortBy = sortActive ? sortActive.textContent.trim() : null;
+
+                const productionActive = filterDropdown.querySelector('.filter-group .filter-tag-row .filter-tag.active');
+                let production = productionActive ? productionActive.textContent.trim().toLowerCase() : null;
+                if (production === 'all') production = null;
+
+                let minVal = 0;
+                let maxVal = 40;
+                const durationMin = filterDropdown.querySelector('.filter-range-min');
+                const durationMax = filterDropdown.querySelector('.filter-range-max');
+                if (durationMin && durationMax) {
+                    minVal = parseInt(durationMin.value, 10);
+                    maxVal = parseInt(durationMax.value, 10);
+                }
+
+                const valueLabels = filterDropdown.querySelectorAll('.filter-inline-value-button span:first-child');
+                const includedCategory = valueLabels[0] ? valueLabels[0].textContent.trim() : null;
+                const excludedCategory = valueLabels[1] ? valueLabels[1].textContent.trim() : null;
+
+                return { sortBy, production, minVal, maxVal, includedCategory, excludedCategory };
+            }
+
+            function countMatchingVideos() {
+                const cards = document.querySelectorAll('.video-grid .video-card');
+                if (!cards.length) return 0;
+
+                const { production, minVal, maxVal, includedCategory, excludedCategory } = getFilterState();
+                const maxCheck = maxVal === 40 ? Infinity : maxVal;
+                let count = 0;
+
+                cards.forEach(card => {
+                    const cardProduction = (card.dataset.production || '').toLowerCase();
+                    const cardDuration = parseInt(card.dataset.duration || '0', 10);
+                    const cardCategory = (card.dataset.category || '').trim();
+
+                    if (production && cardProduction !== production) return;
+                    if (cardDuration < minVal || cardDuration > maxCheck) return;
+
+                    if (includedCategory && includedCategory !== 'All' && cardCategory !== includedCategory) return;
+                    if (excludedCategory && excludedCategory !== 'None' && cardCategory === excludedCategory) return;
+
+                    count++;
+                });
+
+                return count;
+            }
+
+            function updateResultsCount() {
+                if (!applyButton) return;
+                const count = countMatchingVideos();
+                applyButton.textContent = `Show ${count} Result${count === 1 ? '' : 's'}`;
+            }
+
             filterCheckboxes.forEach(cb => {
                 cb.addEventListener('change', function() {
                     updateFilterCount();
+                    updateResultsCount();
                 });
             });
 
             updateFilterCount();
+            updateResultsCount();
 
             // Duration dual-range clamp logic
             const durationMin = filterDropdown.querySelector('.filter-range-min');
@@ -1469,38 +1527,15 @@
                             durationMin.value = maxVal;
                         }
                     }
+
+                    updateResultsCount();
                 };
 
                 durationMin.addEventListener('input', clampDuration);
                 durationMax.addEventListener('input', clampDuration);
             }
 
-            // Helper to compute current filter state
-            function getFilterState() {
-                const sortActive = filterDropdown.querySelector('.sort-section .filter-tag.active');
-                const sortByLabel = sortActive ? sortActive.textContent.trim() : null;
-
-                const productionActive = filterDropdown.querySelector('.filter-group .filter-tag-row .filter-tag.active');
-                let production = productionActive ? productionActive.textContent.trim().toLowerCase() : null;
-                if (production === 'all') production = null;
-
-                let minVal = 0;
-                const minInput = filterDropdown.querySelector('.filter-range-min');
-                if (minInput) {
-                    minVal = parseInt(minInput.value, 10) || 0;
-                }
-
-                const valueButtons = filterDropdown.querySelectorAll('.filter-inline-value-button');
-                const includedBtn = valueButtons[0];
-                const excludedBtn = valueButtons[1];
-
-                const includedCategoryId = includedBtn ? includedBtn.getAttribute('data-category-id') : null;
-                const excludedCategoryId = excludedBtn ? excludedBtn.getAttribute('data-category-id') : null;
-
-                return { sortByLabel, production, minVal, includedCategoryId, excludedCategoryId };
-            }
-
-            // Toggle active state for sort and production tag groups
+            // Toggle active state for sort and production tags
             function setupTagGroup(selector) {
                 const tags = filterDropdown.querySelectorAll(selector);
                 if (!tags.length) return;
@@ -1508,6 +1543,7 @@
                     tag.addEventListener('click', () => {
                         tags.forEach(t => t.classList.remove('active'));
                         tag.classList.add('active');
+                        updateResultsCount();
                     });
                 });
             }
@@ -1515,49 +1551,107 @@
             setupTagGroup('.sort-section .filter-tag');
             setupTagGroup('.filter-group .filter-tag-row .filter-tag');
 
-            // Map sort label to short code used in `o` param
-            function getSortCode(label) {
-                if (!label) return null;
-                const map = {
-                    'Featured Recently': 'fr',
-                    'Most Viewed': 'mv',
-                    'Top Rated': 'tr',
-                    'Hottest': 'ht',
-                    'Longest': 'lg',
-                    'Newest': 'nw'
-                };
-                return map[label] || null;
+            if (resetButton && durationMin && durationMax) {
+                resetButton.addEventListener('click', () => {
+                    // Reset sort
+                    const sortTags = filterDropdown.querySelectorAll('.sort-section .filter-tag');
+                    sortTags.forEach((btn, idx) => btn.classList.toggle('active', idx === 0));
+
+                    // Reset production
+                    const productionTags = filterDropdown.querySelectorAll('.filter-group .filter-tag-row .filter-tag');
+                    productionTags.forEach((btn, idx) => btn.classList.toggle('active', idx === 0));
+
+                    // Reset duration
+                    durationMin.value = 0;
+                    durationMax.value = 40;
+
+                    updateResultsCount();
+                });
             }
 
-            // When clicking Show Results, update URL sublink like /video?... on any base URL
+            // Show Results button click handler
             if (applyButton) {
                 applyButton.addEventListener('click', () => {
-                    const state = getFilterState();
-                    const sortCode = getSortCode(state.sortByLabel);
+                    const { sortBy, production, minVal, maxVal, includedCategory, excludedCategory } = getFilterState();
+
+                    // Map sort options to URL abbreviations
+                    const sortMap = {
+                        'Featured Recently': 'fr',
+                        'Most Viewed': 'mv',
+                        'Top Rated': 'tr',
+                        'Hottest': 'h',
+                        'Longest': 'lg',
+                        'Newest': 'n'
+                    };
 
                     const params = new URLSearchParams();
 
-                    if (state.includedCategoryId) {
-                        params.set('c', state.includedCategoryId);
+                    // Get included category ID from button
+                    const includedBtn = filterDropdown.querySelector('.filter-inline-value-button[data-category-id]');
+                    if (includedCategory && includedCategory !== 'All' && includedBtn) {
+                        const categoryId = includedBtn.getAttribute('data-category-id');
+                        if (categoryId && categoryId !== '0') {
+                            params.append('c', categoryId);
+                        }
                     }
 
-                    if (state.production) {
-                        params.set('p', state.production);
+                    // Add production filter
+                    if (production && production !== 'all') {
+                        params.append('p', production);
                     }
 
-                    if (sortCode) {
-                        params.set('o', sortCode);
+                    // Add sort option
+                    if (sortBy && sortMap[sortBy]) {
+                        params.append('o', sortMap[sortBy]);
                     }
 
-                    params.set('min_duration', String(state.minVal || 0));
-
-                    if (state.excludedCategoryId) {
-                        params.set('exclude_category', state.excludedCategoryId);
+                    // Add duration minimum
+                    if (minVal > 0) {
+                        params.append('min_duration', minVal.toString());
                     }
 
-                    const base = window.location.href.split('?')[0].replace(/\/$/, '');
-                    const targetUrl = `${base}/video?${params.toString()}`;
-                    window.location.href = targetUrl;
+                    // Add duration maximum if not 40
+                    if (maxVal < 40) {
+                        params.append('max_duration', maxVal.toString());
+                    }
+
+                    // Get excluded category ID from button
+                    const excludedBtn = filterDropdown.querySelectorAll('.filter-inline-value-button[data-category-id]')[1];
+                    if (excludedCategory && excludedCategory !== 'None' && excludedBtn) {
+                        const categoryId = excludedBtn.getAttribute('data-category-id');
+                        if (categoryId && categoryId !== '0') {
+                            params.append('exclude_category', categoryId);
+                        }
+                    }
+
+                    // Filter videos on the current page
+                    const videoCards = document.querySelectorAll('.video-grid .video-card');
+                    const maxCheck = maxVal === 40 ? Infinity : maxVal;
+                    let visibleCount = 0;
+
+                    videoCards.forEach(card => {
+                        const cardProduction = (card.dataset.production || '').toLowerCase();
+                        const cardDuration = parseInt(card.dataset.duration || '0', 10);
+                        const cardCategory = (card.dataset.category || '').trim();
+
+                        let isVisible = true;
+
+                        if (production && cardProduction !== production) isVisible = false;
+                        if (cardDuration < minVal || cardDuration > maxCheck) isVisible = false;
+                        if (includedCategory && includedCategory !== 'All' && cardCategory !== includedCategory) isVisible = false;
+                        if (excludedCategory && excludedCategory !== 'None' && cardCategory === excludedCategory) isVisible = false;
+
+                        card.style.display = isVisible ? '' : 'none';
+                        if (isVisible) visibleCount++;
+                    });
+
+                    // Update URL without navigating
+                    const queryString = params.toString();
+                    const newUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+                    window.history.pushState({ filters: params }, '', newUrl);
+
+                    // Close filter dropdown
+                    filterDropdown.classList.remove('open');
                 });
             }
         }
@@ -1573,7 +1667,7 @@
                 signOutItem.addEventListener('click', function(e) {
                     e.stopPropagation();
                     localStorage.setItem('isLoggedIn', 'false');
-                    window.location.href = 'https://thestash.gay/auth';
+                    window.location.href = 'https://www.thestash.gay/auth';
                 });
                 authActionsContainer.appendChild(signOutItem);
             } else {
@@ -1592,7 +1686,7 @@
                 e.stopPropagation();
                 const page = this.getAttribute('data-page');
                 if (page) {
-                    window.location.href = `https://thestash.gay/${page}`;
+                    window.location.href = `https://www.thestash.gay/${page}`;
                 }
             });
         });
@@ -1662,6 +1756,65 @@
         }
 
         renderSearchSuggestions();
+
+        // Restore filters from URL on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.toString()) {
+                // Parse and apply filters from URL
+                const categoryId = urlParams.get('c');
+                const production = urlParams.get('p');
+                const sortAbbr = urlParams.get('o');
+                const minDuration = parseInt(urlParams.get('min_duration') || '0', 10);
+                const maxDuration = parseInt(urlParams.get('max_duration') || '40', 10);
+                const excludeCategoryId = urlParams.get('exclude_category');
+
+                // Restore sort
+                const sortReverseMap = {
+                    'fr': 'Featured Recently',
+                    'mv': 'Most Viewed',
+                    'tr': 'Top Rated',
+                    'h': 'Hottest',
+                    'lg': 'Longest',
+                    'n': 'Newest'
+                };
+
+                if (sortAbbr && sortReverseMap[sortAbbr]) {
+                    const sortBtn = Array.from(filterDropdown.querySelectorAll('.sort-section .filter-tag')).find(
+                        btn => btn.textContent.trim() === sortReverseMap[sortAbbr]
+                    );
+                    if (sortBtn) {
+                        filterDropdown.querySelectorAll('.sort-section .filter-tag').forEach(btn => btn.classList.remove('active'));
+                        sortBtn.classList.add('active');
+                    }
+                }
+
+                // Restore production
+                if (production) {
+                    const prodBtn = Array.from(filterDropdown.querySelectorAll('.filter-group .filter-tag-row .filter-tag')).find(
+                        btn => btn.textContent.trim().toLowerCase() === production
+                    );
+                    if (prodBtn) {
+                        filterDropdown.querySelectorAll('.filter-group .filter-tag-row .filter-tag').forEach(btn => btn.classList.remove('active'));
+                        prodBtn.classList.add('active');
+                    }
+                }
+
+                // Restore duration
+                const durationMin = filterDropdown.querySelector('.filter-range-min');
+                const durationMax = filterDropdown.querySelector('.filter-range-max');
+                if (durationMin && durationMax) {
+                    durationMin.value = minDuration;
+                    durationMax.value = maxDuration;
+                }
+
+                // Trigger filter to display matching videos
+                const applyButton = filterDropdown.querySelector('.filter-apply-button');
+                if (applyButton) {
+                    applyButton.click();
+                }
+            }
+        }, false);
     </script>
 </body>
 </html>
