@@ -1,129 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>THESTASH.GAY — Launching Soon</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 768 768'><rect fill='%23cddc39' width='768' height='768'/><text x='50%' y='50%' font-size='120' font-weight='bold' text-anchor='middle' dominant-baseline='middle' fill='%23000000' font-family='Arial'>the stash</text></svg>" type="image/svg+xml">
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Inter:wght@300;400&display=swap" rel="stylesheet">
-
-  <style>
-    :root {
-      --accent: #7a4a3a;
-      --text-soft: #8a6a5c;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      height: 100vh;
-      font-family: 'Inter', sans-serif;
-      background:
-        url("Softblush Beauty.jpeg") center / cover no-repeat fixed;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      overflow: hidden;
-      position: fixed;
-      width: 100%;
-    }
-
-    .container {
-      padding: 3rem 2rem;
-      max-width: 520px;
-      width: 100%;
-    }
-
-    .brand {
-      font-size: 0.75rem;
-      letter-spacing: 0.15em;
-      color: var(--accent);
-      margin-bottom: 3rem;
-    }
-
-    h1 {
-      font-family: 'Playfair Display', serif;
-      font-size: clamp(2.6rem, 5vw, 3.3rem);
-      font-weight: 500;
-      color: var(--accent);
-      margin: 0 0 1.5rem;
-    }
-
-    p {
-      font-size: 0.95rem;
-      color: var(--text-soft);
-      line-height: 1.6;
-      margin: 0 0 3rem;
-    }
-
-    .icons {
-      display: flex;
-      justify-content: center;
-      gap: 2.2rem;
-    }
-
-    .icons a {
-      color: var(--accent);
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .icon-svg {
-      width: 22px;
-      height: 22px;
-      display: block;
-      transition: opacity 0.25s ease, transform 0.25s ease;
-    }
-
-    .icons a:hover .icon-svg {
-      opacity: 0.6;
-      transform: translateY(-1px) scale(1.05);
-    }
-
-    footer {
-      position: fixed;
-      bottom: 1.2rem;
-      width: 100%;
-      text-align: center;
-      font-size: 0.65rem;
-      letter-spacing: 0.12em;
-      color: var(--text-soft);
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Stash</title>
+<meta name="description" content="The Stash: watch, upload and share videos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%BC%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
-
-  <div class="container">
-    <div class="brand">THESTASH.GAY</div>
-
-    <h1>Launching soon!</h1>
-
-    <p>
-      We are currently making some<br />
-      improvements to our website!
-    </p>
-
-    <div class="icons">
-      <a href="https://bsky.app/profile/daphuq.bsky.social" aria-label="BlueSky">
-        <img src="Bluesky_Logo.svg" alt="BlueSky" class="icon-svg">
-      </a>
-
-      <a href="https://x.com/daphuq_?s=21" aria-label="X">
-        <img src="SVG image.svg" alt="X" class="icon-svg">
-      </a>
-    </div>
-  </div>
-
-  <footer>
-    © 2026 THE STASH
-  </footer>
-
+<body data-page="home">
+<header class="top" id="top"></header>
+<div class="shell">
+  <nav class="side" id="side" aria-label="Main"></nav>
+  <main id="app"><div class="loading"><span class="spin"></span></div></main>
+</div>
+<nav class="bottomnav" id="bottomnav" aria-label="Main"></nav>
+<div id="modalRoot"></div>
+<div id="toastRoot" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1"></script>
+<script src="/assets/config.js"></script>
+<script src="/assets/core.js"></script>
+<script src="/assets/pages.js"></script>
 </body>
 </html>

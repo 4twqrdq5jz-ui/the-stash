@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in | The Stash</title>
+<meta name="description" content="The Stash: watch, upload and share videos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%BC%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="login" class="login-page">
+<div class="login-bg" aria-hidden="true"></div>
+<div class="login-wrap">
+  <div>
+    <main class="login-card" id="loginCard"><div class="loading" style="padding:40px 0"><span class="spin"></span></div></main>
+    <p class="login-foot">Just here to watch? <a href="/">Browse The Stash</a>, no account needed.</p>
+  </div>
+</div>
+<div id="modalRoot"></div>
+<div id="toastRoot" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1"></script>
+<script src="/assets/config.js"></script>
+<script src="/assets/core.js"></script>
+<script src="/assets/pages.js"></script>
+</body>
+</html>
