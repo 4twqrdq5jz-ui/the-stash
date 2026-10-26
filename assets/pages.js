@@ -723,7 +723,7 @@ PAGES.upload = async () => {
   if (!S.canUpload()){ el.innerHTML = empty("Uploading is for verified models", "To keep everyone on The Stash safe, only creators whose age and ID we've checked can upload. Apply from your profile and you can start once you're approved.", '<a class="btn primary" href="' + esc(profileUrl(S.profile)) + '&tab=model">Apply to be a model</a>'); return; }
   const MAXMB = +S.cfg.MAX_VIDEO_MB || 50;
   const cats = await loadCategories();
-  const maxLabel = MAXMB >= 1024 ? (MAXMB / 1024).toFixed(MAXMB % 1024 ? 1 : 0) + " GB" : MAXMB + " MB";
+  const maxLabel = MAXMB >= 1048576 ? +(MAXMB / 1048576).toFixed(1) + " TB" : MAXMB >= 1024 ? +(MAXMB / 1024).toFixed(1) + " GB" : MAXMB + " MB";
   const targets = S.postAs();
   const want = param("to");
   let source = param("from") === "x" ? "x" : "device";
@@ -766,7 +766,7 @@ PAGES.upload = async () => {
       $("#xLink").addEventListener("click", async () => { const b = $("#xLink"); b.disabled = true; try { await S.linkX("/upload/?from=x"); } catch(e){ b.disabled = false; $("#xErr").textContent = /manual linking|linking is disabled/i.test(e.message || "") ? "Connecting accounts isn't switched on for this site yet." : /provider is not enabled|Unsupported provider/i.test(e.message || "") ? "X sign-in isn't switched on for this site yet." : errText(e); } });
       return;
     }
-    pane.innerHTML = '<div class="xbox"><h2>Import a video from X</h2><p>Paste a link to one of your posts' + (xname ? ' as <b>@' + esc(xname) + '</b>' : "") + '. You can only import videos from your own posts, up to ' + MAXMB + ' MB.</p>' +
+    pane.innerHTML = '<div class="xbox"><h2>Import a video from X</h2><p>Paste a link to one of your posts' + (xname ? ' as <b>@' + esc(xname) + '</b>' : "") + '. You can only import videos from your own posts, up to ' + (S.cfg.MAX_X_IMPORT_MB || 512) + ' MB.</p>' +
       '<div class="xrow"><label class="sr" for="xUrl">Link to your X post</label><input class="input" id="xUrl" type="url" inputmode="url" placeholder="https://x.com/' + esc(xname || "you") + '/status/…" autocomplete="off"><button class="btn primary" id="xGo">Import video</button></div><div class="err" id="xErr" role="alert"></div></div>';
     const go = async () => {
       const link = $("#xUrl").value.trim(), b = $("#xGo"), errEl = $("#xErr");

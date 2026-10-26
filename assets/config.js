@@ -23,7 +23,11 @@ window.STASH_CONFIG = {
   // Largest video someone can upload, in MB (1024 = 1 GB). Files over 50 MB need
   // Supabase's Pro plan, with the project's upload limit raised to match
   // (Settings > Storage). Keep this at or below the "videos" bucket limit in schema.sql.
-  MAX_VIDEO_MB: 5000000,
+  MAX_VIDEO_MB: 1024,
+
+  // Largest video the "From X" importer will bring in, in MB. Keep it matching the
+  // MAX_X_IMPORT_MB secret on the import-x function (512 if you haven't set one).
+  MAX_X_IMPORT_MB: 512,
 
   // The Stash is an adult site: visitors must confirm they're 18+ before seeing anything.
   ADULT_CONTENT: true,

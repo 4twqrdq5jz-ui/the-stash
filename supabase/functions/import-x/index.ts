@@ -1,11 +1,20 @@
 // The Stash: import a video from an X (Twitter) post.
-// Deploy:  supabase functions deploy import-x
+// Deploy:  supabase functions deploy import-x --no-verify-jwt
+//   (Supabase's built-in JWT check must be OFF: it blocks the browser's CORS preflight.
+//    This function checks the signed-in user itself, below.)
 // Optional secret for the official X API:  supabase secrets set X_BEARER_TOKEN=...
 //
 // Only imports posts written by the X account linked to the signed-in Stash
 // account, so people can bring in their own videos but not other people's.
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+// Headers for calling Supabase as the server. New secret keys (sb_secret_...) aren't JWTs,
+// so they go only in the apikey header; legacy service_role keys go in both.
+function serverHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const h: Record<string, string> = { apikey: SERVICE_KEY, ...extra };
+  if (SERVICE_KEY.startsWith("eyJ")) h.Authorization = `Bearer ${SERVICE_KEY}`;
+  return h;
+}
 function serverKey(): string {
   // Prefer the new secret key; fall back to the legacy service_role key.
   try { const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"); if (keys.default) return keys.default; } catch { /* ignore */ }
@@ -13,7 +22,7 @@ function serverKey(): string {
 }
 const SERVICE_KEY = serverKey();
 const X_BEARER = Deno.env.get("X_BEARER_TOKEN") ?? "";
-const MAX_MB = Number(Deno.env.get("MAX_VIDEO_MB") ?? "50");
+const MAX_MB = Number(Deno.env.get("MAX_X_IMPORT_MB") ?? "512");
 const ALLOWED_ORIGIN = Deno.env.get("SITE_URL") ?? "*";
 
 const cors = {
@@ -82,6 +91,7 @@ export async function handle(req: Request): Promise<Response> {
   const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!jwt) return fail(401, "signin", "Sign in to import videos.");
   const ur = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: `Bearer ${jwt}`, apikey: SERVICE_KEY } });
+  // (The user's own session token goes in Authorization; that is a real JWT.)
   if (!ur.ok) return fail(401, "signin", "Your session ended. Sign in again.");
   const user = await ur.json();
   const xIdentity = (user.identities ?? []).find((i: any) => i.provider === "twitter" || i.provider === "x");
@@ -113,19 +123,29 @@ export async function handle(req: Request): Promise<Response> {
   if (!chosen) return fail(413, "too_large", `Every version of that video is over the ${MAX_MB} MB limit.`);
 
   const vr = await fetch(chosen.url);
-  if (!vr.ok) return fail(502, "download", "X didn't send the video. Try again in a minute.");
-  const bytes = new Uint8Array(await vr.arrayBuffer());
-  if (bytes.byteLength > max) return fail(413, "too_large", `That video is over the ${MAX_MB} MB limit.`);
+  if (!vr.ok || !vr.body) return fail(502, "download", "X didn't send the video. Try again in a minute.");
 
+  // Stream straight from X into storage so large videos don't have to fit in memory.
   const path = `${user.id}/x-${post.id}-${crypto.randomUUID().slice(0, 8)}.mp4`;
-  const up = await fetch(`${SUPABASE_URL}/storage/v1/object/videos/${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, "Content-Type": "video/mp4", "x-upsert": "false" },
-    body: bytes,
-  });
-  if (!up.ok) return fail(502, "storage", "The video couldn't be saved. Try again.");
+  let up: Response;
+  try {
+    up = await fetch(`${SUPABASE_URL}/storage/v1/object/videos/${path}`, {
+      method: "POST",
+      headers: serverHeaders({ "Content-Type": "video/mp4", "Content-Length": String(chosen.size), "x-upsert": "false" }),
+      body: vr.body,
+      // @ts-ignore: needed for streaming request bodies
+      duplex: "half",
+    });
+  } catch {
+    return fail(502, "storage", "The video couldn't be saved. Try again.");
+  }
+  if (!up.ok){
+    const t = await up.text().catch(() => "");
+    console.error("storage upload failed", up.status, t);
+    return fail(502, "storage", up.status === 413 ? "That video is bigger than the storage limit. Raise the videos bucket limit in Supabase." : "The video couldn't be saved. Try again.");
+  }
 
-  return reply(200, { path, title: found.text.slice(0, 100), description: found.text, duration: found.duration, author: found.author, size: bytes.byteLength });
+  return reply(200, { path, title: found.text.slice(0, 100), description: found.text, duration: found.duration, author: found.author, size: chosen.size });
 }
 
 if (typeof Deno !== "undefined" && (Deno as any).serve) (Deno as any).serve(handle);
