@@ -3,8 +3,10 @@
 -- It deletes ALL Stash data (profiles, videos, comments...). Uploaded files stay in
 -- Storage; empty the "videos" and "images" buckets from the Storage page if you want them gone.
 drop view if exists public.video_feed, public.channel_feed, public.profile_stats cascade;
+drop table if exists public.video_models, public.model_applications, public.reports, public.clips, public.dislikes, public.favorites, public.categories, public.login_throttle cascade;
 drop table if exists public.playlist_items, public.playlists, public.subscriptions, public.follows,
   public.likes, public.comments, public.videos, public.channels, public.profiles, public.stash_settings cascade;
 drop function if exists public.is_me(uuid), public.manages(uuid), public.is_founder(), public.profile_kind(uuid),
   public.profiles_guard(), public.stash_set_kind(uuid, text), public.stash_create_channel(text, text, text),
-  public.stash_set_manager(uuid, text) cascade;
+  public.stash_set_manager(uuid, text), public.stash_review_model(uuid, boolean, text), public.stash_set_model(uuid, boolean),
+  public.video_models_guard(), public.stash_username_login(text, text), public.video_is_live(uuid), public.is_tagged_in(uuid), public.can_upload() cascade;

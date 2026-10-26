@@ -12,7 +12,7 @@ create table if not exists public.stash_settings (
   founder_username text not null default 'daphuq_',
   founder_email text not null
 );
-insert into public.stash_settings (founder_email) values ('demoryaejefferson@gmail.com')
+insert into public.stash_settings (founder_email) values ('YOUR_EMAIL@example.com')
 on conflict (id) do nothing;
 -- To change it later:  update public.stash_settings set founder_email = 'you@example.com';
 alter table public.stash_settings enable row level security; -- no policies: the site can't read or change it
@@ -26,6 +26,7 @@ create table if not exists public.profiles (
   manager_id uuid not null references auth.users(id) on delete cascade,
   kind text not null default 'personal' check (kind in ('personal','channel')),
   is_founder boolean not null default false,
+  is_model boolean not null default false,
   username text not null,
   display_name text not null default '',
   bio text not null default '',
@@ -40,7 +41,16 @@ create table if not exists public.profiles (
   constraint links_is_array check (jsonb_typeof(links) = 'array' and jsonb_array_length(links) <= 5),
   constraint banner_preset_len check (banner_preset is null or char_length(banner_preset) <= 40)
 );
+alter table public.profiles add column if not exists is_model boolean not null default false;
 create unique index if not exists profiles_username_key on public.profiles (lower(username));
+
+-- ---------- categories ----------
+create table if not exists public.categories (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique check (slug ~ '^[a-z0-9][a-z0-9-]{1,39}$'),
+  name text not null check (char_length(name) between 1 and 40),
+  created_at timestamptz not null default now()
+);
 create index if not exists profiles_manager_idx on public.profiles(manager_id);
 
 create table if not exists public.videos (
@@ -54,7 +64,13 @@ create table if not exists public.videos (
   duration integer not null default 0,
   created_at timestamptz not null default now()
 );
+alter table public.videos add column if not exists category_id uuid references public.categories(id) on delete set null;
+alter table public.videos add column if not exists action_time real;
+alter table public.videos add column if not exists sources jsonb not null default '[]'::jsonb; -- extra qualities: [{"label":"720p","path":"..."}]
+-- The uploader's declaration that everyone in the video is 18+, verified, and consented.
+alter table public.videos add column if not exists consent_attested_at timestamptz;
 create index if not exists videos_created_idx on public.videos(created_at desc);
+create index if not exists videos_category_idx on public.videos(category_id);
 create index if not exists videos_owner_idx on public.videos(owner_id);
 
 create table if not exists public.comments (
@@ -109,6 +125,73 @@ create table if not exists public.playlist_items (
   primary key (playlist_id, video_id)
 );
 
+create table if not exists public.favorites (
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  video_id uuid not null references public.videos(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (profile_id, video_id)
+);
+create table if not exists public.dislikes (
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  video_id uuid not null references public.videos(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (profile_id, video_id)
+);
+create index if not exists dislikes_video_idx on public.dislikes(video_id);
+
+create table if not exists public.clips (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  title text not null default '' check (char_length(title) <= 100),
+  start_s real not null check (start_s >= 0),
+  end_s real not null,
+  created_at timestamptz not null default now(),
+  constraint clip_length check (end_s - start_s >= 1 and end_s - start_s <= 60)
+);
+create index if not exists clips_owner_idx on public.clips(owner_id);
+
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid references public.videos(id) on delete set null,
+  video_title text not null default '',
+  reporter_id uuid references public.profiles(id) on delete set null,
+  contact text not null default '' check (char_length(contact) <= 200),
+  reason text not null check (reason in ('minor','nonconsensual','me_no_consent','copyright','spam','violence','other')),
+  details text not null default '' check (char_length(details) <= 2000),
+  status text not null default 'open' check (status in ('open','resolved')),
+  created_at timestamptz not null default now()
+);
+
+-- ---------- models ----------
+-- Members apply to be models. The founding account checks their ID and age, then approves.
+create table if not exists public.model_applications (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  stage_name text not null check (char_length(stage_name) between 1 and 50),
+  legal_name text not null check (char_length(legal_name) between 2 and 120),
+  date_of_birth date not null,
+  id_path text not null,
+  selfie_path text not null,
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  constraint adult check (date_of_birth <= (current_date - interval '18 years'))
+);
+create unique index if not exists one_pending_application on public.model_applications(profile_id) where status = 'pending';
+
+-- Models tagged in videos. A tag only shows once the model approves it.
+create table if not exists public.video_models (
+  video_id uuid not null references public.videos(id) on delete cascade,
+  model_id uuid not null references public.profiles(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending','approved')),
+  created_at timestamptz not null default now(),
+  primary key (video_id, model_id)
+);
+create index if not exists video_models_model_idx on public.video_models(model_id);
+
 -- ---------- helper functions ----------
 create or replace function public.is_me(pid uuid) returns boolean
 language sql stable security definer set search_path = public as $$
@@ -138,12 +221,12 @@ declare
 begin
   if tg_op = 'INSERT' then
     if not admin_call then
-      new.kind := 'personal'; new.is_founder := false;
+      new.kind := 'personal'; new.is_founder := false; new.is_model := false;
       new.user_id := auth.uid(); new.manager_id := auth.uid();
     end if;
   else
     if not admin_call then
-      new.kind := old.kind; new.user_id := old.user_id; new.manager_id := old.manager_id; new.is_founder := old.is_founder;
+      new.kind := old.kind; new.user_id := old.user_id; new.manager_id := old.manager_id; new.is_founder := old.is_founder; new.is_model := old.is_model;
     end if;
   end if;
   select founder_username, founder_email into f_user, f_email from public.stash_settings limit 1;
@@ -197,8 +280,12 @@ declare
   m_user uuid; new_id uuid;
 begin
   if not public.is_founder() then raise exception 'Only support can do this.' using errcode = 'P0001'; end if;
-  select user_id into m_user from public.profiles where lower(username) = lower(p_manager_username) and user_id is not null;
-  if m_user is null then raise exception 'No member has the username @%.', p_manager_username using errcode = 'P0001'; end if;
+  if coalesce(trim(p_manager_username), '') = '' then
+    m_user := auth.uid();
+  else
+    select user_id into m_user from public.profiles where lower(username) = lower(p_manager_username) and user_id is not null;
+    if m_user is null then raise exception 'No member has the username @%.', p_manager_username using errcode = 'P0001'; end if;
+  end if;
   perform set_config('stash.admin', 'on', true);
   insert into public.profiles (user_id, manager_id, kind, username, display_name)
     values (null, m_user, 'channel', lower(p_username), coalesce(nullif(trim(p_display_name), ''), lower(p_username)))
@@ -223,22 +310,67 @@ begin
   perform set_config('stash.admin', 'off', true);
 end $$;
 
-revoke all on function public.stash_set_kind(uuid, text), public.stash_create_channel(text, text, text), public.stash_set_manager(uuid, text) from public, anon;
-grant execute on function public.stash_set_kind(uuid, text), public.stash_create_channel(text, text, text), public.stash_set_manager(uuid, text) to authenticated;
+-- Approve or reject a model application.
+create or replace function public.stash_review_model(p_application uuid, p_approve boolean, p_note text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  a_profile uuid; a_status text;
+begin
+  if not public.is_founder() then raise exception 'Only support can do this.' using errcode = 'P0001'; end if;
+  select profile_id, status into a_profile, a_status from public.model_applications where id = p_application;
+  if not found then raise exception 'Application not found.' using errcode = 'P0001'; end if;
+  update public.model_applications set status = case when p_approve then 'approved' else 'rejected' end,
+    note = coalesce(p_note, ''), reviewed_at = now() where id = p_application;
+  perform set_config('stash.admin', 'on', true);
+  update public.profiles set is_model = p_approve where id = a_profile;
+  perform set_config('stash.admin', 'off', true);
+end $$;
+
+-- Remove someone's model status.
+create or replace function public.stash_set_model(p_profile uuid, p_is_model boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_founder() then raise exception 'Only support can do this.' using errcode = 'P0001'; end if;
+  perform set_config('stash.admin', 'on', true);
+  update public.profiles set is_model = p_is_model where id = p_profile;
+  perform set_config('stash.admin', 'off', true);
+end $$;
+
+-- Tags are approved automatically when models tag themselves; otherwise the model must approve.
+create or replace function public.video_models_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    new.status := case when public.is_me(new.model_id) then 'approved' else 'pending' end;
+  elsif tg_op = 'UPDATE' then
+    if not public.is_me(new.model_id) then new.status := old.status; end if;
+    new.video_id := old.video_id; new.model_id := old.model_id;
+  end if;
+  return new;
+end $$;
+drop trigger if exists video_models_guard on public.video_models;
+create trigger video_models_guard before insert or update on public.video_models for each row execute function public.video_models_guard();
+
+revoke all on function public.stash_set_kind(uuid, text), public.stash_create_channel(text, text, text), public.stash_set_manager(uuid, text), public.stash_review_model(uuid, boolean, text), public.stash_set_model(uuid, boolean) from public, anon;
+grant execute on function public.stash_set_kind(uuid, text), public.stash_create_channel(text, text, text), public.stash_set_manager(uuid, text), public.stash_review_model(uuid, boolean, text), public.stash_set_model(uuid, boolean) to authenticated;
 
 -- ---------- views with counts ----------
-create or replace view public.video_feed with (security_invoker = true) as
+drop view if exists public.video_feed;
+create view public.video_feed with (security_invoker = true) as
   select v.*,
     (select count(*) from public.likes l where l.video_id = v.id)::int as like_count,
+    (select count(*) from public.dislikes d where d.video_id = v.id)::int as dislike_count,
     (select count(*) from public.comments c where c.video_id = v.id)::int as comment_count
   from public.videos v;
 
-create or replace view public.profile_stats with (security_invoker = true) as
+drop view if exists public.profile_stats;
+create view public.profile_stats with (security_invoker = true) as
   select p.id,
     (select count(*) from public.follows f where f.followee_id = p.id)::int as followers,
     (select count(*) from public.follows f where f.follower_id = p.id)::int as following,
     (select count(*) from public.subscriptions s where s.channel_id = p.id)::int as subscribers,
-    (select count(*) from public.videos v where v.owner_id = p.id)::int as video_count
+    (select count(*) from public.videos v where v.owner_id = p.id)::int as video_count,
+    (select count(*) from public.video_models m where m.model_id = p.id and m.status = 'approved')::int as featured_count
   from public.profiles p;
 
 grant select on public.video_feed, public.profile_stats to anon, authenticated;
@@ -252,11 +384,18 @@ alter table public.follows enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.playlists enable row level security;
 alter table public.playlist_items enable row level security;
+alter table public.categories enable row level security;
+alter table public.favorites enable row level security;
+alter table public.dislikes enable row level security;
+alter table public.clips enable row level security;
+alter table public.reports enable row level security;
+alter table public.model_applications enable row level security;
+alter table public.video_models enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['profiles','videos','comments','likes','follows','subscriptions','playlists','playlist_items'] loop
+  foreach t in array array['profiles','comments','likes','follows','subscriptions','playlists','playlist_items','categories','favorites','dislikes','clips'] loop
     execute format('drop policy if exists "Anyone can read" on public.%I', t);
     execute format('create policy "Anyone can read" on public.%I for select using (true)', t);
   end loop;
@@ -267,18 +406,40 @@ create policy "Create own profile" on public.profiles for insert to authenticate
 drop policy if exists "Edit managed profile" on public.profiles;
 create policy "Edit managed profile" on public.profiles for update to authenticated using (manager_id = auth.uid()) with check (manager_id = auth.uid());
 
+-- A video is public only once at least one model is tagged and every tagged model has approved.
+-- Until then only its uploader, its tagged models and the founder can see it.
+create or replace function public.video_is_live(vid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.video_models m where m.video_id = vid and m.status = 'approved')
+     and not exists (select 1 from public.video_models m where m.video_id = vid and m.status = 'pending');
+$$;
+create or replace function public.is_tagged_in(vid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.video_models m where m.video_id = vid and public.is_me(m.model_id));
+$$;
+create or replace function public.can_upload() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where user_id = auth.uid() and (is_model or is_founder));
+$$;
+drop policy if exists "Anyone can read" on public.videos;
+drop policy if exists "Read live videos" on public.videos;
+create policy "Read live videos" on public.videos for select
+  using (public.video_is_live(id) or public.manages(owner_id) or public.is_tagged_in(id) or public.is_founder());
+
+-- Only verified models (and the founder) can upload, and only with the age and consent declaration.
 drop policy if exists "Post video" on public.videos;
-create policy "Post video" on public.videos for insert to authenticated with check (public.manages(owner_id));
+create policy "Post video" on public.videos for insert to authenticated
+  with check (public.manages(owner_id) and public.can_upload() and consent_attested_at is not null);
 drop policy if exists "Edit video" on public.videos;
 create policy "Edit video" on public.videos for update to authenticated using (public.manages(owner_id)) with check (public.manages(owner_id));
 drop policy if exists "Delete video" on public.videos;
-create policy "Delete video" on public.videos for delete to authenticated using (public.manages(owner_id));
+create policy "Delete video" on public.videos for delete to authenticated using (public.manages(owner_id) or public.is_founder());
 
 drop policy if exists "Post comment" on public.comments;
 create policy "Post comment" on public.comments for insert to authenticated with check (public.is_me(author_id));
 drop policy if exists "Delete comment" on public.comments;
 create policy "Delete comment" on public.comments for delete to authenticated
-  using (public.is_me(author_id) or exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)));
+  using (public.is_me(author_id) or public.is_founder() or exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)));
 
 drop policy if exists "Like" on public.likes;
 create policy "Like" on public.likes for insert to authenticated with check (public.is_me(profile_id));
@@ -315,8 +476,9 @@ create policy "Remove from own playlist" on public.playlist_items for delete to 
 -- ---------- storage ----------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values
-  ('videos', 'videos', true, 52428800, array['video/mp4','video/webm']),
-  ('images', 'images', true, 10485760, array['image/jpeg','image/png','image/webp'])
+  ('videos', 'videos', true, 1073741824, array['video/*']),
+  ('images', 'images', true, 10485760, array['image/jpeg','image/png','image/webp']),
+  ('verification', 'verification', false, 10485760, array['image/jpeg','image/png','image/webp','application/pdf'])
 on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "Stash public files" on storage.objects;
@@ -378,3 +540,71 @@ begin
 end $$;
 revoke all on function public.stash_username_login(text, text) from public;
 grant execute on function public.stash_username_login(text, text) to anon, authenticated;
+
+
+-- ---------- policies for categories, favorites, clips, reports and models ----------
+drop policy if exists "Founder adds categories" on public.categories;
+create policy "Founder adds categories" on public.categories for insert to authenticated with check (public.is_founder());
+drop policy if exists "Founder edits categories" on public.categories;
+create policy "Founder edits categories" on public.categories for update to authenticated using (public.is_founder()) with check (public.is_founder());
+drop policy if exists "Founder deletes categories" on public.categories;
+create policy "Founder deletes categories" on public.categories for delete to authenticated using (public.is_founder());
+
+drop policy if exists "Favorite" on public.favorites;
+create policy "Favorite" on public.favorites for insert to authenticated with check (public.is_me(profile_id));
+drop policy if exists "Unfavorite" on public.favorites;
+create policy "Unfavorite" on public.favorites for delete to authenticated using (public.is_me(profile_id));
+
+drop policy if exists "Dislike" on public.dislikes;
+create policy "Dislike" on public.dislikes for insert to authenticated with check (public.is_me(profile_id));
+drop policy if exists "Undislike" on public.dislikes;
+create policy "Undislike" on public.dislikes for delete to authenticated using (public.is_me(profile_id));
+
+drop policy if exists "Make clip" on public.clips;
+create policy "Make clip" on public.clips for insert to authenticated with check (public.is_me(owner_id));
+drop policy if exists "Delete clip" on public.clips;
+create policy "Delete clip" on public.clips for delete to authenticated using (public.is_me(owner_id));
+
+-- Anyone, even without an account, can report a video. Only the founder can read reports.
+drop policy if exists "Send report" on public.reports;
+create policy "Send report" on public.reports for insert to anon, authenticated
+  with check (status = 'open' and (reporter_id is null or public.is_me(reporter_id)));
+drop policy if exists "Founder reads reports" on public.reports;
+create policy "Founder reads reports" on public.reports for select to authenticated using (public.is_founder());
+drop policy if exists "Founder resolves reports" on public.reports;
+create policy "Founder resolves reports" on public.reports for update to authenticated using (public.is_founder()) with check (public.is_founder());
+
+drop policy if exists "Apply as model" on public.model_applications;
+create policy "Apply as model" on public.model_applications for insert to authenticated
+  with check (public.is_me(profile_id) and user_id = auth.uid() and status = 'pending' and note = '' and reviewed_at is null);
+drop policy if exists "See own or review applications" on public.model_applications;
+create policy "See own or review applications" on public.model_applications for select to authenticated
+  using (user_id = auth.uid() or public.is_founder());
+
+-- Approved tags are public; pending ones are visible to the uploader and the model.
+drop policy if exists "Read model tags" on public.video_models;
+create policy "Read model tags" on public.video_models for select
+  using (status = 'approved' or public.is_me(model_id) or exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)));
+drop policy if exists "Tag a model" on public.video_models;
+create policy "Tag a model" on public.video_models for insert to authenticated
+  with check (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id))
+              and exists (select 1 from public.profiles p where p.id = model_id and p.is_model));
+drop policy if exists "Model approves tag" on public.video_models;
+create policy "Model approves tag" on public.video_models for update to authenticated using (public.is_me(model_id)) with check (public.is_me(model_id));
+drop policy if exists "Remove model tag" on public.video_models;
+create policy "Remove model tag" on public.video_models for delete to authenticated
+  using (public.is_me(model_id) or public.is_founder() or exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)));
+
+-- ID documents: private. Members upload to their own folder; only they and the founder can view.
+drop policy if exists "Upload own ID" on storage.objects;
+create policy "Upload own ID" on storage.objects for insert to authenticated
+  with check (bucket_id = 'verification' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "View own ID or review" on storage.objects;
+create policy "View own ID or review" on storage.objects for select to authenticated
+  using (bucket_id = 'verification' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_founder()));
+
+-- Starter categories (the founder can add, rename or remove these on the Admin page).
+insert into public.categories (slug, name) values
+  ('solo', 'Solo'), ('couples', 'Couples'), ('amateur', 'Amateur'), ('bears', 'Bears'), ('twinks', 'Twinks'),
+  ('daddies', 'Daddies'), ('muscle', 'Muscle'), ('jocks', 'Jocks'), ('behind-the-scenes', 'Behind the scenes')
+on conflict (slug) do nothing;

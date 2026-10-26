@@ -92,6 +92,7 @@ App.ready = (async () => {
   } catch(e){}
 })();
 App.signedIn = () => !!(App.user && App.profile);
+App.canUpload = () => !!(App.profile && (App.profile.is_model || App.profile.is_founder));
 App.manages = id => !!(App.user && ((App.profile && App.profile.id === id && App.profile.manager_id === App.user.id) || App.managed.some(c => c.id === id)));
 App.isFounder = () => !!(App.profile && App.profile.is_founder);
 App.postAs = () => { const list = App.profile ? [App.profile] : []; App.managed.forEach(c => { if (!list.some(x => x.id === c.id)) list.push(c); }); return list; };
@@ -131,7 +132,7 @@ function anniversary(created, now){
 function badges(p){
   if (!p) return "";
   const a = p.created_at ? anniversary(p.created_at) : null;
-  return (a && a.today ? '<span class="badge anniv" title="' + ordinal(a.years) + ' Stash anniversary today">🎂 ' + a.years + (a.years === 1 ? " year" : " years") + '</span>' : "") + (p.is_founder ? '<span class="badge founder" title="Founding account">Founder</span>' : "") + (p.kind === "channel" ? '<span class="badge channel">Channel</span>' : "");
+  return (a && a.today ? '<span class="badge anniv" title="' + ordinal(a.years) + ' Stash anniversary today">🎂 ' + a.years + (a.years === 1 ? " year" : " years") + '</span>' : "") + (p.is_founder ? '<span class="badge founder" title="Founding account">Founder</span>' : "") + (p.kind === "channel" ? '<span class="badge channel">Channel</span>' : "") + (p.is_model ? '<span class="badge model">Model</span>' : "");
 }
 const displayName = p => p ? (p.display_name || p.username || "Unknown") : "Unknown";
 function chAvatar(c, size){ return '<span class="chav" style="width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * .45) + 'px;background:' + colorFor(c ? c.id : "x") + '" aria-hidden="true">' + initials(c ? c.name : "?") + '</span>'; }
@@ -147,7 +148,7 @@ function vcard(v, maps, opts){
     '<div style="min-width:0"><a class="vtitle" href="' + href + '">' + esc(v.title) + '</a><a class="vsub" href="' + ohref + '">' + esc(displayName(o)) + '</a>' +
     '<div class="vsmall">' + (v.like_count ? plural(v.like_count, "like") + ", " : "") + esc(timeAgo(v.created_at)) + '</div></div></div></article>';
 }
-const PROFILE_COLS = "id,username,display_name,avatar_path,kind,is_founder,user_id,manager_id,created_at";
+const PROFILE_COLS = "id,username,display_name,avatar_path,kind,is_founder,is_model,user_id,manager_id,created_at";
 async function profilesByIds(ids){
   ids = [...new Set(ids.filter(Boolean))];
   if (!ids.length) return new Map();
@@ -206,6 +207,8 @@ const IC = {
   lib: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h11M4 11h11M4 16h7"/><path d="M17 14v7l4-3.5z" fill="currentColor"/></svg>',
   up: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
   me: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20c1.5-4 4.3-5.5 7.5-5.5s6 1.5 7.5 5.5"/></svg>',
+  cat: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>',
+  admin: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4" stroke-linecap="round"/></svg>',
   search: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>'
 };
 let menuOpen = false;
@@ -248,20 +251,37 @@ function renderHeader(){
       (menuOpen ? '<div class="menu" role="menu"><div class="who">' + avatar(p, 38) + '<span style="min-width:0"><span class="name">' + esc(p.display_name || p.username) + '</span><span class="sub">@' + esc(p.username) + '</span></span></div>' +
       '<a role="menuitem" href="' + esc(profileUrl(p)) + '">Your profile</a><a role="menuitem" href="' + esc(profileUrl(p)) + '&edit=1">Edit profile</a><a role="menuitem" href="/library/">Library</a>' +
       (App.managed.filter(c => c.id !== p.id).length ? '<div class="menuhead">Your channels</div>' + App.managed.filter(c => c.id !== p.id).map(c => '<a role="menuitem" href="' + esc(profileUrl(c)) + '">' + esc(displayName(c)) + '</a>').join("") : "") +
-      (p.kind === "channel" ? "" : '<a role="menuitem" href="' + esc(App.channelRequestUrl("new")) + '">Get a channel</a>') +
-      (App.isFounder() ? '<a role="menuitem" href="#" id="supportTools">Support tools</a>' : "") +
+      (App.isFounder() ? '<a role="menuitem" href="/admin/">Admin</a>' : "") +
       '<button role="menuitem" id="signOutBtn">Sign out</button></div>' : "");
     $("#menuBtn").addEventListener("click", () => { menuOpen = !menuOpen; renderHeader(); });
     const so = $("#signOutBtn"); if (so) so.addEventListener("click", async () => { await sb.auth.signOut(); location.href = "/"; });
-    const st = $("#supportTools"); if (st) st.addEventListener("click", e => { e.preventDefault(); menuOpen = false; renderHeader(); if (App.openSupportTools) App.openSupportTools(); });
   }
   const side = $("#side");
   if (side){
-    side.innerHTML = navLink("home","/","Home",IC.home) + navLink("subscriptions","/subscriptions/","Subscriptions",IC.subs) + navLink("library","/library/","Library",IC.lib) + navLink("upload","/upload/","Upload",IC.up) +
-      (p ? navLink("me", profileUrl(p), "Your profile", IC.me) : "");
+    side.innerHTML = navLink("home","/","Home",IC.home) + navLink("channels","/channels/","Channels",IC.subs) + navLink("categories","/categories/","Categories",IC.cat) + navLink("library","/library/","Library",IC.lib) + navLink("upload","/upload/","Upload",IC.up) +
+      (p ? navLink("me", profileUrl(p), "Your profile", IC.me) : "") + (App.isFounder() ? navLink("admin", "/admin/", "Admin", IC.admin) : "");
     const dn = $("#drawerNav"); if (dn) dn.innerHTML = side.innerHTML;
-    $("#bottomnav").innerHTML = navLink("home","/","Home",IC.home) + navLink("subscriptions","/subscriptions/","Subscriptions",IC.subs) + navLink("upload","/upload/","Upload",IC.up) + navLink("library","/library/","Library",IC.lib) + (p ? navLink("me", profileUrl(p), "You", IC.me) : "");
+    $("#bottomnav").innerHTML = navLink("home","/","Home",IC.home) + navLink("channels","/channels/","Channels",IC.subs) + navLink("categories","/categories/","Categories",IC.cat) + navLink("upload","/upload/","Upload",IC.up) + (p ? navLink("me", profileUrl(p), "You", IC.me) : navLink("library","/library/","Library",IC.lib));
   }
+}
+
+/* ---------- footer ---------- */
+function renderFooter(){
+  const f = $("#sitefoot"); if (!f) return;
+  const support = CFG.SUPPORT_EMAIL || "support@thestash.gay";
+  f.innerHTML = '<div class="foot-in"><div class="foot-brand"><a class="wordmark" href="/">the stash</a><p>Gay adult videos from verified 18+ creators. Watch free, no account needed.</p></div>' +
+    '<nav class="foot-cols" aria-label="Footer"><div><h4>Explore</h4><a href="/">Home</a><a href="/channels/">Channels</a><a href="/categories/">Categories</a><a href="/search/">Search</a></div>' +
+    '<div><h4>Create</h4><a href="' + (App.profile ? esc(profileUrl(App.profile)) + '&tab=model' : '/login/?mode=signup') + '">Become a verified model</a><a href="/upload/">Upload a video</a><a href="/library/">Your library</a></div>' +
+    '<div><h4>Help</h4><a href="mailto:' + esc(support) + '">Contact support</a><a href="mailto:' + esc(support) + '?subject=' + encodeURIComponent("Content removal request") + '">Request content removal</a><a href="/2257/">2257 statement</a></div></nav></div>' +
+    '<div class="foot-base"><span>© ' + new Date().getFullYear() + ' The Stash</span>' + (CFG.ADULT_CONTENT ? '<span>Adults only. Everyone appearing on The Stash was 18 or older when filmed, and is ID-verified. <a href="/2257/">18 U.S.C. 2257 statement</a></span>' : "") + '</div>';
+}
+function ageGate(){
+  if (!CFG.ADULT_CONTENT || lsGet("stash:age-ok") === "1" || document.body.dataset.page === "none") return;
+  const g = document.createElement("div"); g.className = "agegate"; g.setAttribute("role", "dialog"); g.setAttribute("aria-modal", "true"); g.setAttribute("aria-labelledby", "agTitle");
+  g.innerHTML = '<div class="agecard"><span class="wordmark">the stash</span><h2 id="agTitle">Adults only</h2><p>The Stash is a gay adult video site with sexually explicit content. Only enter if you are 18 or older (21 where that is the law), viewing this material is legal where you are, and you want to see it.</p><div class="acts"><a class="btn ghost" href="https://www.google.com">Leave</a><button class="btn primary" id="agOk">I\'m 18 or older, enter</button></div><p class="vsmall" style="margin:14px 0 0">Parents: this site is labeled for parental-control filters (RTA).</p><div></div></div>';
+  document.body.appendChild(g); document.body.classList.add("drawer-open");
+  $("#agOk").focus();
+  $("#agOk").addEventListener("click", () => { lsSet("stash:age-ok", "1"); g.remove(); document.body.classList.remove("drawer-open"); });
 }
 
 /* ---------- sign in / sign up ---------- */
@@ -300,10 +320,11 @@ function mountAuth(root, opts){
         '<div class="err" id="aErr" role="alert"></div><button class="btn primary submit" id="aGo">Sign in</button>' +
         '<p class="switch">New to The Stash? <button type="button" data-step="signup">Create an account</button></p>';
     } else if (step === "signup"){
-      h += '<h2>Create your account</h2><p class="lede">Watching is free for everyone. An account lets you upload and join in.</p>' + tabs() + oauthButtons() +
+      h += '<h2>Create your account</h2><p class="lede">Watching is free. An account lets you like, comment, save, follow, and apply to become a verified model.</p>' + tabs() + oauthButtons() +
         '<div class="field"><label for="aEmail">Email</label><input class="input" id="aEmail" type="email" autocomplete="email" inputmode="email"></div>' + pwField("aPw", "Password", "new-password") +
         '<div class="meter" id="aMeter" data-level="0" aria-hidden="true"><i></i><i></i><i></i></div><div class="meterlabel"><span id="aHint">Use at least 8 characters.</span><b id="aLevel" data-level="0"></b></div>' +
         pwField("aPw2", "Confirm password", "new-password") + '<div class="match" id="aMatch" aria-live="polite"></div>' +
+        (CFG.ADULT_CONTENT ? '<label class="check" style="border:0;padding:6px 0 0"><input type="checkbox" id="aAdult"><span>I\'m 18 or older and agree to see sexually explicit content.</span></label>' : "") +
         '<div class="err" id="aErr" role="alert"></div><button class="btn primary submit" id="aGo" disabled>Create account</button>' +
         '<p class="switch">Already have an account? <button type="button" data-step="signin">Sign in</button></p>';
     } else if (step === "check"){
@@ -337,9 +358,11 @@ function mountAuth(root, opts){
       if (!pw2.value){ m.textContent = ""; m.className = "match"; }
       else if (pw2.value === pw.value){ m.textContent = "Passwords match"; m.className = "match ok"; }
       else { m.textContent = "Passwords don't match yet"; m.className = "match no"; }
-      go.disabled = !(s.level >= 2 && pw.value === pw2.value && (!email || email.value.includes("@")));
+      const adult = $("#aAdult", root);
+      go.disabled = !(s.level >= 2 && pw.value === pw2.value && (!email || email.value.includes("@")) && (!adult || adult.checked));
     };
     [pw, pw2, email].forEach(i => i && i.addEventListener("input", update));
+    const ad = $("#aAdult", root); if (ad) ad.addEventListener("change", update);
     update();
   }
   async function afterSignIn(){
@@ -455,36 +478,88 @@ function cropImage(file, W, H){
     img.src = url;
   });
 }
-/* Opens a video file once so frames can be grabbed at any time. */
+/* What kind of video a file is. Browsers leave file.type empty for some formats, so fall back to the extension. */
+const VIDEO_EXT = { mp4:"video/mp4", m4v:"video/x-m4v", mov:"video/quicktime", qt:"video/quicktime", webm:"video/webm", mkv:"video/x-matroska", avi:"video/x-msvideo", wmv:"video/x-ms-wmv", flv:"video/x-flv", "3gp":"video/3gpp", "3g2":"video/3gpp2", mpg:"video/mpeg", mpeg:"video/mpeg", m2ts:"video/mp2t", mts:"video/mp2t", ts:"video/mp2t", ogv:"video/ogg", vob:"video/dvd", f4v:"video/x-f4v", asf:"video/x-ms-asf", hevc:"video/hevc" };
+const VIDEO_ACCEPT = "video/*," + Object.keys(VIDEO_EXT).map(e => "." + e).join(",");
+function videoType(file){
+  if (file && /^video\//.test(file.type)) return file.type;
+  const ext = String(file && file.name || "").toLowerCase().split(".").pop();
+  return VIDEO_EXT[ext] || null;
+}
+const videoExt = type => (Object.entries(VIDEO_EXT).find(([, t]) => t === type) || ["mp4"])[0];
+
+/* Opens a video file once so frames can be grabbed at any time. Works around iPhone/iPad
+   Safari, which won't decode frames until the video has started playing. */
 function frameGrabber(file){
   const url = URL.createObjectURL(file), v = document.createElement("video");
-  v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+  v.muted = true; v.defaultMuted = true; v.playsInline = true; v.preload = "auto";
+  v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("webkit-playsinline", "");
+  v.style.cssText = "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none";
+  document.body.appendChild(v);
+  let decodable = null;
   const ready = new Promise(res => {
-    let done = false; const fin = ok => { if (!done){ done = true; res(ok); } };
-    v.onloadeddata = () => fin(true); v.onerror = () => fin(false); setTimeout(() => fin(v.readyState >= 1), 10000);
+    let done = false; const fin = ok => { if (!done){ done = true; decodable = ok; res(ok); } };
+    v.addEventListener("loadeddata", () => fin(true));
+    v.addEventListener("canplay", () => fin(true));
+    v.addEventListener("error", () => fin(false));
+    v.addEventListener("loadedmetadata", () => {
+      if (v.readyState < 2){ const p = v.play(); if (p && p.then) p.then(() => { v.pause(); }).catch(() => {}); }
+    });
+    setTimeout(() => fin(v.readyState >= 2), 12000);
+  });
+  v.src = url; try { v.load(); } catch(e){}
+  const nextFrame = () => new Promise(res => {
+    let done = false; const fin = () => { if (!done){ done = true; res(); } };
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => fin());
+    requestAnimationFrame(() => requestAnimationFrame(fin)); setTimeout(fin, 500);
   });
   const api = {
+    async canPlay(){ await ready; return !!decodable && v.videoWidth > 0; },
     async duration(){ await ready; return isFinite(v.duration) ? v.duration : 0; },
     async grab(t){
       const ok = await ready; if (!ok || !v.videoWidth) return null;
-      await new Promise(res => { let done = false; const fin = () => { if (!done){ done = true; res(); } }; v.onseeked = fin; setTimeout(fin, 4000); try { v.currentTime = Math.max(0, t); } catch(e){ fin(); } });
+      await new Promise(res => { let done = false; const fin = () => { if (!done){ done = true; res(); } }; v.addEventListener("seeked", fin, { once: true }); setTimeout(fin, 5000); try { v.currentTime = Math.max(0, t); } catch(e){ fin(); } });
+      await nextFrame();
       try {
         const c = document.createElement("canvas"); c.width = 1280; c.height = 720;
         const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, 1280, 720);
         const r = Math.min(1280 / v.videoWidth, 720 / v.videoHeight), w = v.videoWidth * r, h = v.videoHeight * r;
         g.drawImage(v, (1280 - w) / 2, (720 - h) / 2, w, h);
-        return await new Promise(res => c.toBlob(b => res(b), "image/jpeg", 0.85));
+        // a fully black frame usually means the browser didn't really decode it
+        const px = g.getImageData(320, 180, 640, 360).data; let lit = 0;
+        for (let i = 0; i < px.length; i += 4 * 97) if (px[i] + px[i + 1] + px[i + 2] > 24) lit++;
+        const blob = await new Promise(res => c.toBlob(b => res(b), "image/jpeg", 0.85));
+        return blob ? { blob, dark: lit === 0 } : null;
       } catch(e){ return null; }
     },
     async randomFrame(avoid){
       const d = await api.duration();
-      let t = d > 0 ? d * (0.05 + Math.random() * 0.9) : 0.5;
-      if (avoid != null && d > 2) for (let i = 0; i < 5 && Math.abs(t - avoid) < d * 0.08; i++) t = d * (0.05 + Math.random() * 0.9);
-      const blob = await api.grab(t); return blob ? { blob, time: t } : null;
+      for (let tries = 0; tries < 4; tries++){
+        let t = d > 0 ? d * (0.05 + Math.random() * 0.9) : 0.5;
+        if (avoid != null && d > 2) for (let i = 0; i < 5 && Math.abs(t - avoid) < d * 0.08; i++) t = d * (0.05 + Math.random() * 0.9);
+        const r = await api.grab(t);
+        if (!r) return null;
+        if (!r.dark || tries === 3) return { blob: r.blob, time: t };
+      }
+      return null;
     },
-    close(){ v.removeAttribute("src"); try { v.load(); } catch(e){} URL.revokeObjectURL(url); }
+    async frameAt(t){ const r = await api.grab(t); return r ? { blob: r.blob, time: t } : null; },
+    close(){ v.removeAttribute("src"); try { v.load(); } catch(e){} v.remove(); URL.revokeObjectURL(url); }
   };
   return api;
+}
+/* Grab the frame currently showing in a playing <video> (needs crossOrigin="anonymous"). */
+function frameFromVideo(v){
+  return new Promise(res => {
+    try {
+      if (!v.videoWidth) return res(null);
+      const c = document.createElement("canvas"); c.width = 1280; c.height = 720;
+      const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, 1280, 720);
+      const r = Math.min(1280 / v.videoWidth, 720 / v.videoHeight), w = v.videoWidth * r, h = v.videoHeight * r;
+      g.drawImage(v, (1280 - w) / 2, (720 - h) / 2, w, h);
+      c.toBlob(b => res(b), "image/jpeg", 0.85);
+    } catch(e){ res(null); }
+  });
 }
 function videoMeta(file){
   return new Promise(res => {
@@ -508,7 +583,7 @@ function videoMeta(file){
   });
 }
 /* Uploads straight to Supabase Storage so we can show progress. */
-function uploadWithProgress(bucket, path, file, onProgress){
+function uploadWithProgress(bucket, path, file, onProgress, type){
   return new Promise(async (res, rej) => {
     const { data } = await sb.auth.getSession();
     const token = data.session && data.session.access_token;
@@ -519,7 +594,7 @@ function uploadWithProgress(bucket, path, file, onProgress){
     xhr.setRequestHeader("apikey", CFG.SUPABASE_ANON_KEY);
     xhr.setRequestHeader("x-upsert", "false");
     xhr.setRequestHeader("cache-control", "max-age=3600");
-    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.setRequestHeader("Content-Type", type || file.type || "application/octet-stream");
     xhr.upload.onprogress = e => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) res(path);
@@ -548,6 +623,31 @@ async function linkX(returnTo){
   const { error } = await sb.auth.linkIdentity({ provider: CFG.X_PROVIDER || "twitter", options: { redirectTo: location.origin + (returnTo || "/upload/") } });
   if (error) throw error;
 }
+/* Large files go up in 6 MB pieces with the tus protocol, so a dropped connection
+   resumes instead of starting over. Small files use one request. */
+function uploadResumable(bucket, path, file, type, onProgress){
+  if (window.__previewUpload) return window.__previewUpload(bucket, path, file, onProgress);
+  if (!window.tus || file.size < 6 * 1048576) return uploadWithProgress(bucket, path, file, onProgress, type);
+  return new Promise(async (res, rej) => {
+    const { data } = await sb.auth.getSession();
+    const token = data.session && data.session.access_token;
+    if (!token){ rej(new Error("Your session ended. Sign in again.")); return; }
+    const up = new window.tus.Upload(file, {
+      endpoint: CFG.SUPABASE_URL.replace(/\/$/, "") + "/storage/v1/upload/resumable",
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: { authorization: "Bearer " + token, apikey: CFG.SUPABASE_ANON_KEY, "x-upsert": "false" },
+      uploadDataDuringCreation: true, removeFingerprintOnSuccess: true,
+      metadata: { bucketName: bucket, objectName: path, contentType: type, cacheControl: "3600" },
+      chunkSize: 6 * 1024 * 1024,
+      onError: e => { const m = String(e && e.message || ""); rej(new Error(/413|too large|maximum allowed size/i.test(m) ? "That file is larger than the upload limit. Raise the limit in Supabase (Settings > Storage) or pick a smaller file." : /401|403|jwt|unauthor/i.test(m) ? "Upload permission was refused. Sign out and back in, then try again." : "The upload was interrupted. Check your connection and try again.")); },
+      onProgress: (sent, total) => { if (onProgress && total) onProgress(sent / total); },
+      onSuccess: () => res(path)
+    });
+    try { const prev = await up.findPreviousUploads(); if (prev.length) up.resumeFromPreviousUpload(prev[0]); } catch(e){}
+    up.start();
+  });
+}
+
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 /* ---------- custom video player ---------- */
@@ -561,6 +661,10 @@ const PI = {
   exit: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
   pip: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor"/></svg>',
   back10: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v4h4"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui" font-weight="700">10</text></svg>',
+  jump: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L5 13h6l-1 8 8-10h-6z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  theater: '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2"><rect x="2.5" y="6" width="19" height="12" rx="2"/></svg>',
+  theaterOff: '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="7" width="14" height="10" rx="2"/></svg>',
   fwd10: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui" font-weight="700">10</text></svg>'
 };
 const clock = t => { t = Math.max(0, Math.floor(+t || 0)); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); };
@@ -568,41 +672,57 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return nu
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(e){} };
 function mountPlayer(root, opts){
   opts = opts || {};
+  const sources = (opts.sources || []).filter(s => s && s.src);
+  let srcIdx = 0;
+  const hasAction = typeof opts.actionTime === "number" && opts.actionTime > 0;
   root.classList.add("sp"); root.tabIndex = -1;
-  root.innerHTML = '<video playsinline preload="metadata"' + (opts.poster ? ' poster="' + esc(opts.poster) + '"' : "") + ' src="' + esc(opts.src) + '"></video>' +
+  root.innerHTML = '<video playsinline preload="metadata" crossorigin="anonymous"' + (opts.poster ? ' poster="' + esc(opts.poster) + '"' : "") + '></video>' +
     '<button class="sp-big" aria-label="Play">' + PI.play + '</button><div class="sp-spin" hidden><span class="spin"></span></div><div class="sp-flash" aria-hidden="true"></div>' +
-    '<div class="sp-err" hidden><p>This video couldn\'t play. Check your connection and try again.</p><button class="btn sm">Try again</button></div>' +
-    '<div class="sp-bar"><div class="sp-seek" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><div class="sp-track"><i class="sp-buf"></i><i class="sp-played"></i><i class="sp-knob"></i></div><span class="sp-tip" hidden>0:00</span></div>' +
+    '<div class="sp-err" hidden><p></p><button class="btn sm">Try again</button></div>' +
+    (opts.clip ? '<div class="sp-clipbar">Clip ' + clock(opts.clip.start) + '–' + clock(opts.clip.end) + '</div>' : "") +
+    '<div class="sp-bar"><div class="sp-seek" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><div class="sp-track"><i class="sp-buf"></i>' + (opts.clip ? '<i class="sp-cliprange"></i>' : "") + '<i class="sp-played"></i>' + (hasAction ? '<i class="sp-action" title="Action"></i>' : "") + '<i class="sp-knob"></i></div><span class="sp-tip" hidden>0:00</span></div>' +
     '<div class="sp-row"><button class="sp-btn sp-play" aria-label="Play">' + PI.play + '</button>' +
     '<button class="sp-btn sp-b10 hide-xs" aria-label="Back 10 seconds">' + PI.back10 + '</button><button class="sp-btn sp-f10 hide-xs" aria-label="Forward 10 seconds">' + PI.fwd10 + '</button>' +
     (opts.onNext ? '<button class="sp-btn sp-next" aria-label="Next video">' + PI.next + '</button>' : "") +
     '<div class="sp-vol"><button class="sp-btn sp-mute" aria-label="Mute">' + PI.vol + '</button><input class="sp-volr" type="range" min="0" max="1" step="0.05" aria-label="Volume"></div>' +
     '<span class="sp-time"><span class="sp-cur">0:00</span> / <span class="sp-dur">0:00</span></span><span class="sp-grow"></span>' +
-    '<div class="sp-menuwrap"><button class="sp-btn sp-speed" aria-label="Playback speed" aria-haspopup="true" aria-expanded="false">1×</button><div class="sp-menu" role="menu" hidden>' + [0.25,0.5,0.75,1,1.25,1.5,1.75,2].map(r => '<button role="menuitemradio" data-rate="' + r + '" aria-checked="' + (r === 1) + '">' + (r === 1 ? "Normal" : r + "×") + '</button>').join("") + '</div></div>' +
-    ('pictureInPictureEnabled' in document && document.pictureInPictureEnabled ? '<button class="sp-btn sp-pip" aria-label="Picture in picture">' + PI.pip + '</button>' : "") +
+    (hasAction ? '<button class="sp-btn sp-jump" aria-label="Jump to action">' + PI.jump + '<span class="hide-xs">Jump to action</span></button>' : "") +
+    '<div class="sp-menuwrap"><button class="sp-btn sp-gear" aria-label="Settings: quality and speed" aria-haspopup="true" aria-expanded="false">' + PI.gear + '</button><div class="sp-menu" role="menu" hidden></div></div>' +
+    ('pictureInPictureEnabled' in document && document.pictureInPictureEnabled ? '<button class="sp-btn sp-pip hide-xs" aria-label="Picture in picture">' + PI.pip + '</button>' : "") +
+    (opts.onTheater ? '<button class="sp-btn sp-theater hide-sm" aria-label="Larger player" aria-pressed="false">' + PI.theater + '</button>' : "") +
     '<button class="sp-btn sp-fs" aria-label="Full screen">' + PI.full + '</button></div></div>';
   const v = root.querySelector("video"), q = s => root.querySelector(s);
-  const seek = q(".sp-seek"), played = q(".sp-played"), buf = q(".sp-buf"), knob = q(".sp-knob"), tip = q(".sp-tip"), big = q(".sp-big"), playBtn = q(".sp-play"), muteBtn = q(".sp-mute"), volr = q(".sp-volr"), spd = q(".sp-speed"), menu = q(".sp-menu"), fsBtn = q(".sp-fs");
+  const seek = q(".sp-seek"), played = q(".sp-played"), buf = q(".sp-buf"), knob = q(".sp-knob"), tip = q(".sp-tip"), big = q(".sp-big"), playBtn = q(".sp-play"), muteBtn = q(".sp-mute"), volr = q(".sp-volr"), gear = q(".sp-gear"), menu = q(".sp-menu"), fsBtn = q(".sp-fs");
   const savedVol = parseFloat(lsGet("stash:vol")), savedMute = lsGet("stash:muted") === "1";
   v.volume = isFinite(savedVol) ? Math.min(1, Math.max(0, savedVol)) : 1; v.muted = savedMute;
-  let scrubbing = false, hideT = null, started = false;
+  let scrubbing = false, hideT = null, menuView = "main";
   const dur = () => isFinite(v.duration) ? v.duration : 0;
+  const setSrc = (i, keep) => {
+    const t = keep ? v.currentTime : (opts.startAt || 0), wasPlaying = keep && !v.paused, rate = v.playbackRate;
+    srcIdx = i; q(".sp-err").hidden = true;
+    v.src = sources[i].src;
+    v.addEventListener("loadedmetadata", () => { try { if (t) v.currentTime = t; } catch(e){} v.playbackRate = rate; if (wasPlaying){ const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } }, { once: true });
+  };
+  const qualityLabel = () => { const s = sources[srcIdx]; if (!s) return "Auto"; if (s.label) return s.label; const h = v.videoHeight; return h ? h + "p" : "Original"; };
   const paintTime = () => {
     const d = dur(), t = scrubbing ? scrubbing.t : v.currentTime, pct = d ? Math.min(100, t / d * 100) : 0;
     played.style.width = pct + "%"; knob.style.left = pct + "%";
     q(".sp-cur").textContent = clock(t); q(".sp-dur").textContent = clock(Math.round(d));
     seek.setAttribute("aria-valuemax", String(Math.floor(d))); seek.setAttribute("aria-valuenow", String(Math.floor(t))); seek.setAttribute("aria-valuetext", clock(t) + " of " + clock(d));
+    if (d && hasAction) q(".sp-action").style.left = Math.min(100, opts.actionTime / d * 100) + "%";
+    if (d && opts.clip){ const cr = q(".sp-cliprange"); cr.style.left = (opts.clip.start / d * 100) + "%"; cr.style.width = ((opts.clip.end - opts.clip.start) / d * 100) + "%"; }
     try { const b = v.buffered; let end = 0; for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.5) end = Math.max(end, b.end(i)); buf.style.width = (d ? Math.min(100, end / d * 100) : 0) + "%"; } catch(e){}
   };
   const paintPlay = () => {
     const p = v.paused || v.ended;
     playBtn.innerHTML = p ? PI.play : PI.pause; playBtn.setAttribute("aria-label", p ? "Play" : "Pause");
-    big.hidden = !p || scrubbing; big.innerHTML = PI.play; root.classList.toggle("paused", p);
+    big.hidden = !p || !!scrubbing; root.classList.toggle("paused", p);
   };
   const paintVol = () => { const m = v.muted || v.volume === 0; muteBtn.innerHTML = m ? PI.mute : PI.vol; muteBtn.setAttribute("aria-label", m ? "Unmute" : "Mute"); volr.value = String(v.muted ? 0 : v.volume); volr.style.setProperty("--v", (v.muted ? 0 : v.volume) * 100 + "%"); };
   const flash = html => { const f = q(".sp-flash"); f.innerHTML = html; f.classList.remove("on"); void f.offsetWidth; f.classList.add("on"); };
   const toggle = () => { if (v.paused || v.ended){ const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } else v.pause(); };
   const jump = s => { const d = dur(); if (!d) return; v.currentTime = Math.min(d, Math.max(0, v.currentTime + s)); flash('<b>' + (s > 0 ? "+" : "") + s + 's</b>'); wake(); };
+  const jumpToAction = () => { if (!hasAction) return; v.currentTime = Math.min(dur() || opts.actionTime, opts.actionTime); const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); flash('<b>Action</b>'); wake(); };
   const wake = () => { root.classList.add("show"); clearTimeout(hideT); if (!v.paused && !scrubbing) hideT = setTimeout(() => { if (!v.paused && menu.hidden) root.classList.remove("show"); }, 2600); };
   const isFs = () => (document.fullscreenElement || document.webkitFullscreenElement) === root;
   const toggleFs = () => {
@@ -611,6 +731,19 @@ function mountPlayer(root, opts){
     if (req) req.call(root); else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
   };
   const fromX = e => { const r = seek.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+  const paintMenu = () => {
+    if (menuView === "quality"){
+      menu.innerHTML = '<button class="sp-mback" data-view="main">‹ Quality</button>' + sources.map((s, i) => '<button role="menuitemradio" data-src="' + i + '" aria-checked="' + (i === srcIdx) + '">' + esc(s.label || (i === 0 ? (v.videoHeight ? v.videoHeight + "p" : "Original") : "Option " + (i + 1))) + (i === 0 && sources.length > 1 ? " (original)" : "") + '</button>').join("") +
+        (sources.length < 2 ? '<p class="sp-mnote">This video has one quality. More appear here when the site makes extra versions.</p>' : "");
+    } else if (menuView === "speed"){
+      menu.innerHTML = '<button class="sp-mback" data-view="main">‹ Speed</button>' + RATES.map(r => '<button role="menuitemradio" data-rate="' + r + '" aria-checked="' + (v.playbackRate === r) + '">' + (r === 1 ? "Normal" : r + "×") + '</button>').join("");
+    } else {
+      menu.innerHTML = '<button data-view="quality" class="sp-mrow"><span>Quality</span><b>' + esc(qualityLabel()) + ' ›</b></button><button data-view="speed" class="sp-mrow"><span>Speed</span><b>' + (v.playbackRate === 1 ? "Normal" : v.playbackRate + "×") + ' ›</b></button>';
+    }
+    const f = menu.querySelector('[aria-checked="true"]') || menu.querySelector("button"); if (f && !menu.hidden) f.focus();
+  };
+  const closeMenu = () => { menu.hidden = true; gear.setAttribute("aria-expanded", "false"); menuView = "main"; };
 
   v.addEventListener("click", () => { toggle(); wake(); });
   v.addEventListener("dblclick", toggleFs);
@@ -618,12 +751,24 @@ function mountPlayer(root, opts){
   playBtn.addEventListener("click", toggle);
   q(".sp-b10").addEventListener("click", () => jump(-10)); q(".sp-f10").addEventListener("click", () => jump(10));
   const nx = q(".sp-next"); if (nx) nx.addEventListener("click", () => opts.onNext());
+  const jb = q(".sp-jump"); if (jb) jb.addEventListener("click", jumpToAction);
   muteBtn.addEventListener("click", () => { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; });
   volr.addEventListener("input", () => { v.volume = +volr.value; v.muted = +volr.value === 0; });
-  spd.addEventListener("click", e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; spd.setAttribute("aria-expanded", String(open)); if (open){ const c = menu.querySelector('[aria-checked="true"]'); if (c) c.focus(); } wake(); });
-  menu.addEventListener("click", e => { const b = e.target.closest("[data-rate]"); if (!b) return; v.playbackRate = +b.dataset.rate; menu.querySelectorAll("[data-rate]").forEach(x => x.setAttribute("aria-checked", String(x === b))); spd.textContent = (+b.dataset.rate === 1 ? "1" : b.dataset.rate) + "×"; menu.hidden = true; spd.setAttribute("aria-expanded", "false"); spd.focus(); });
-  document.addEventListener("click", e => { if (!menu.hidden && !e.target.closest(".sp-menuwrap")){ menu.hidden = true; spd.setAttribute("aria-expanded", "false"); } });
+  gear.addEventListener("click", e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; gear.setAttribute("aria-expanded", String(open)); menuView = "main"; if (open) paintMenu(); wake(); });
+  menu.addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.view){ menuView = b.dataset.view; paintMenu(); return; }
+    if (b.dataset.rate){ v.playbackRate = +b.dataset.rate; flash('<b>' + (+b.dataset.rate === 1 ? "Normal" : b.dataset.rate + "×") + '</b>'); }
+    if (b.dataset.src != null && +b.dataset.src !== srcIdx) setSrc(+b.dataset.src, true);
+    closeMenu(); gear.focus();
+  });
+  menu.addEventListener("keydown", e => { if (e.key === "Escape"){ e.stopPropagation(); closeMenu(); gear.focus(); } });
+  document.addEventListener("click", e => { if (!menu.hidden && !e.target.closest(".sp-menuwrap")) closeMenu(); });
   const pipBtn = q(".sp-pip"); if (pipBtn) pipBtn.addEventListener("click", async () => { try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await v.requestPictureInPicture(); } catch(e){} });
+  const th = q(".sp-theater");
+  const paintTheater = on => { if (!th) return; th.setAttribute("aria-pressed", String(on)); th.setAttribute("aria-label", on ? "Default view" : "Larger player"); th.innerHTML = on ? PI.theaterOff : PI.theater; };
+  if (th){ paintTheater(!!opts.theater); th.addEventListener("click", () => { const on = th.getAttribute("aria-pressed") !== "true"; paintTheater(on); opts.onTheater(on); }); }
   fsBtn.addEventListener("click", toggleFs);
   const onFs = () => { const f = isFs(); fsBtn.innerHTML = f ? PI.exit : PI.full; fsBtn.setAttribute("aria-label", f ? "Exit full screen" : "Full screen"); root.classList.toggle("fs", f); };
   document.addEventListener("fullscreenchange", onFs); document.addEventListener("webkitfullscreenchange", onFs);
@@ -645,18 +790,23 @@ function mountPlayer(root, opts){
   });
 
   ["timeupdate","durationchange","progress","seeked","loadedmetadata"].forEach(ev => v.addEventListener(ev, paintTime));
-  v.addEventListener("play", () => { started = true; root.classList.add("started"); paintPlay(); wake(); });
+  if (opts.clip) v.addEventListener("timeupdate", () => { if (v.currentTime >= opts.clip.end && !scrubbing){ v.currentTime = opts.clip.start; if (opts.clip.loop === false) v.pause(); } });
+  v.addEventListener("play", () => { root.classList.add("started"); paintPlay(); wake(); });
   v.addEventListener("pause", () => { paintPlay(); wake(); });
   v.addEventListener("ended", () => { paintPlay(); root.classList.add("show"); if (opts.onEnded) opts.onEnded(); });
   v.addEventListener("volumechange", () => { paintVol(); lsSet("stash:vol", String(v.volume)); lsSet("stash:muted", v.muted ? "1" : "0"); });
   v.addEventListener("waiting", () => { q(".sp-spin").hidden = false; });
   ["playing","canplay","seeked","pause"].forEach(ev => v.addEventListener(ev, () => { q(".sp-spin").hidden = true; }));
-  v.addEventListener("error", () => { if (v.error){ q(".sp-err").hidden = false; big.hidden = true; } });
-  q(".sp-err button").addEventListener("click", () => { q(".sp-err").hidden = true; const t = v.currentTime; v.load(); v.currentTime = t; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); });
+  v.addEventListener("error", () => {
+    if (!v.error) return;
+    if (srcIdx < sources.length - 1 && v.error.code === 4){ setSrc(srcIdx + 1, true); return; }
+    q(".sp-err p").textContent = v.error.code === 4 ? "Your browser can't play this video's format. Try another browser, or ask the uploader to post an MP4." : "This video couldn't play. Check your connection and try again.";
+    q(".sp-err").hidden = false; big.hidden = true;
+  });
+  q(".sp-err button").addEventListener("click", () => { q(".sp-err").hidden = true; setSrc(srcIdx, true); const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); });
   root.addEventListener("pointermove", wake); root.addEventListener("pointerdown", wake); root.addEventListener("focusin", wake);
   root.addEventListener("mouseleave", () => { if (!v.paused && menu.hidden) root.classList.remove("show"); });
 
-  // keyboard shortcuts while you're on the page and not typing
   document.addEventListener("keydown", e => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target, tag = (t.tagName || "").toLowerCase();
@@ -671,24 +821,29 @@ function mountPlayer(root, opts){
     else if (k === "arrowdown" && root.contains(t)){ e.preventDefault(); v.volume = Math.max(0, v.volume - 0.1); flash('<b>' + Math.round(v.volume * 100) + '%</b>'); }
     else if (k === "m"){ v.muted = !v.muted; flash(v.muted ? PI.mute : PI.vol); }
     else if (k === "f") toggleFs();
+    else if (k === "t" && th) th.click();
+    else if (k === "a" && hasAction) jumpToAction();
     else if (/^[0-9]$/.test(k) && dur()){ v.currentTime = dur() * (+k / 10); wake(); }
     else return;
     wake();
   });
+  if (sources.length) setSrc(0, false);
   paintTime(); paintPlay(); paintVol(); root.classList.add("show");
-  return { video: v, play(){ const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); return pr; } };
+  return { video: v, play(){ const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); return pr; }, jumpToAction, seekTo(t){ v.currentTime = t; } };
 }
+
 
 /* ---------- boot ---------- */
 function setupNotice(){
   const app = $("#app") || $("#loginCard"); if (!app) return;
-  app.innerHTML = '<div class="setup"><h2 style="font-size:22px;margin-bottom:8px">The Stash needs one more step</h2><p>Open <code>assets/config.js</code> and paste in your Supabase Project URL and anon key. The README walks through every step.</p></div>';
+  app.innerHTML = '<div class="setup"><h2 style="font-size:22px;margin-bottom:8px">The Stash needs one more step</h2><p>Open <code>assets/config.js</code> and paste in your Supabase Project URL and publishable key. The README walks through every step.</p></div>';
 }
 App.start = async function(render){
-  renderHeader();
+  ageGate();
+  renderHeader(); renderFooter();
   if (!sb){ setupNotice(); return; }
   await App.ready;
-  renderHeader();
+  renderHeader(); renderFooter();
   sb.auth.onAuthStateChange((event, session) => {
     const changed = (session ? session.user.id : null) !== (App.user ? App.user.id : null);
     App.session = session; App.user = session ? session.user : null;
@@ -703,6 +858,6 @@ App.start = async function(render){
 Object.assign(App, { $, esc, colorFor, initials, timeAgo, fmtDur, fmtCount, plural, safeUrl, safeNext, param, pub, USER_RE, must, errText, toast,
   openModal, closeModal, confirmModal, avatar, chAvatar, thumbInner, vcard, hydrate, profilesByIds, PROFILE_COLS, videosByIds, watchUrl, profileUrl,
   badges, displayName, BANNERS, presetUrl, bannerHTML, frameGrabber, anniversary, ordinal, mountPlayer, importFromX, xIdentity, linkX, lsGet, lsSet,
-  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uuid });
+  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, uuid, videoType, videoExt, VIDEO_ACCEPT, frameFromVideo, clock });
 window.Stash = App;
 })();

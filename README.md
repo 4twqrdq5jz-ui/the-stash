@@ -1,8 +1,14 @@
 # The Stash
 
-A video site where anyone can watch without an account. With an account, people can upload, comment, like, follow people, subscribe to channels, build playlists and earn achievements.
+A gay adult video site for adults 18+. Anyone 18 or older can watch without an account. With an account, people can upload, comment, like, follow people, subscribe to channels, build playlists and earn achievements.
 
-**Profiles and channels.** Everyone gets a personal profile, which people *follow*. A channel is a special kind of profile that people *subscribe* to. Members can't make channels themselves: they email support (the "Get a channel" links), and the founding account **@daphuq_** creates the channel or converts their profile using the built-in support tools.
+**Profiles, channels and models.**
+- Everyone gets a personal profile, which people *follow*.
+- Channels are profiles people *subscribe* to. Only the founding account **@daphuq_** can create them, from the **Admin** page.
+- Members can apply to be **models** from the Model tab on their profile. They send their legal name, date of birth, a photo of their ID and a selfie holding it. You review each one on the Admin page.
+- Only verified models (and the founding account) can upload.
+- Every upload needs a declaration that everyone in it was 18+ when filmed, consented to filming and publishing, and is tagged.
+- A video stays private until every tagged model approves. Models can remove themselves at any time.
 
 Sign-in options are email and password (with a weak/fair/strong meter and confirm field), Google, and X.
 
@@ -52,11 +58,11 @@ Open **Authentication** in Supabase.
 3. Under **Authorized redirect URIs**, add the callback URL shown on Supabase's Google provider page. It looks like `https://YOUR_PROJECT_ID.supabase.co/auth/v1/callback`.
 4. Paste the client ID and secret into Supabase under **Providers**, then **Google**, and enable it.
 
-**X (Twitter)**
+**X**
 1. In the [X Developer Portal](https://developer.x.com), create a project and app.
-2. Under **User authentication settings**, turn on OAuth, set the type to **Web App**, and add the same Supabase callback URL. Set the website URL to `https://thestash.gay`.
-3. Copy the keys into Supabase's X/Twitter provider and enable it.
-4. `assets/config.js` uses the provider name `twitter`. If your Supabase dashboard lists X under a different provider name, change `X_PROVIDER` to match.
+2. Under **User authentication settings**, turn on **OAuth 2.0**, set the type to **Web App**, and turn on **Request email from users**. Add the callback URL shown on Supabase's **X / Twitter (OAuth 2.0)** provider page, and set the website URL to `https://thestash.gay`.
+3. Copy the **Client ID** and **Client Secret** from **Keys and tokens** into Supabase under **X / Twitter (OAuth 2.0)**, and turn it on. Use the OAuth 2.0 provider, not the older "Twitter (OAuth 1.0a)" one.
+4. `assets/config.js` already uses the matching provider name, `x`.
 
 Until Google or X is switched on, those buttons show "sign-in isn't switched on yet" instead of failing silently.
 
@@ -100,20 +106,44 @@ Any static host works. Netlify, Vercel and Cloudflare Pages are all free to star
 
 ---
 
-## Handling channel requests (founding account)
+## The Admin page (founding account)
 
-Requests arrive as emails to `SUPPORT_EMAIL`, already filled in with the member's username.
+Sign in as @daphuq_ and open **Admin** in the sidebar or account menu.
 
-- **"Turn my profile into a channel":** open their profile while signed in as @daphuq_. In the Support box, click **Turn into a channel**. Their followers become subscribers. **Turn back into a personal profile** reverses it.
-- **"I'd like a new channel":** click **Create a channel profile**. It's in the Support box on any profile, or **Support tools** in your account menu. Enter the channel's username and name, and the member who will run it. That member can then edit the channel and choose it under **Post to** when uploading.
-- **Change who runs a channel:** on a standalone channel's profile, use **Change who runs it**.
+- **Model applications:** view each applicant's ID and selfie through private links that expire after 5 minutes. Approve only if the ID is genuine, shows they're 18 or older, and matches the selfie. If you reject, the applicant sees your reason.
+- **Reports:** anyone can report a video, even without an account. Reports about minors or non-consent are listed first. You can delete the video from here, or mark the report resolved.
+- **Categories:** add, rename or remove categories. They also have an **Add category** button on the Categories page.
+- **Channels:** create a channel. You run it unless you enter a member's username. On a profile, the Admin box can also turn a profile into a channel and back, or change who runs a channel.
+- **Models:** see every verified model and remove model status.
 
-These tools are checked by the database, so only the founding account can use them.
+The database itself checks all of these, so only the founding account can use them.
+
+## Running an adult site: before you launch
+
+These aren't legal advice, but they're the things that most often shut adult sites down.
+
+- **Hosting:** Netlify allows legal adult content. Supabase's acceptable use policy bans "obscene" or "objectionable" content and lets it suspend accounts it considers a risk. Email Supabase and get written confirmation before you launch. If they say no, keep the code and move video storage to an adult-friendly host.
+- **Viewer age checks:** a click-through "I'm 18" screen isn't enough everywhere. A growing number of US states, the UK (Online Safety Act) and parts of the EU require real age verification, such as an ID check or face age estimation. Use an age-verification provider for those regions, or block them.
+- **Performer records:** in the US, 18 U.S.C. § 2257 requires age and identity records for everyone in sexually explicit content, kept by a named custodian. The model applications here collect ID and a selfie, but have a lawyer confirm your record keeping meets the rules.
+- **Payments:** if you ever charge, most mainstream processors won't handle adult sites. Adult-specialist processors do, and they have their own verification and moderation rules.
+- **Takedowns:** respond fast to reports about minors or non-consent. Remove first, then investigate. In the US, child sexual abuse material must be reported to NCMEC's CyberTipline.
 
 ## Customizing
 
 - **Login background:** put your image at `assets/login-bg.jpg`. Then in `assets/app.css`, change `login-bg.svg` to `login-bg.jpg` in the `.login-bg` rule. Use a wide image, at least 1920 px across. A dark overlay is added automatically so the sign-in card stays readable.
-- **Video size limit:** the default is 50 MB, which is the per-file limit on Supabase's free plan. To raise it, move to a paid Supabase plan, then update both `MAX_VIDEO_MB` in `assets/config.js` and the `videos` bucket's `file_size_limit` in `schema.sql`. Re-run that `insert into storage.buckets …` statement after changing it.
+- **Video size limit (1 GB):** the site and the `videos` bucket allow uploads up to 1 GB. Supabase's free plan caps every file at 50 MB, so for bigger videos:
+  1. Upgrade to **Pro**.
+  2. In **Settings**, then **Storage**, raise the **Upload file size limit** to 1 GB.
+
+  Large files upload in 6 MB pieces and pick up where they left off if the connection drops.
+- **Video types:** any video file can be uploaded: MP4, MOV, MKV, AVI, WebM, WMV and more. Browsers can only play some formats, though. MP4 (H.264) plays everywhere, MOV usually works, and MKV, AVI and WMV often don't. The upload page warns the uploader when their browser can't play a file.
+- **Quality options:** the player's settings menu lists every quality a video has. Uploads come in as one quality. To offer 1080p, 720p and 480p versions you need a transcoding service such as Mux or Cloudflare Stream, or a server running ffmpeg. Store the extra files in the `videos` bucket and list them in the video's `sources` column, like `[{"label":"720p","path":"…"}]`, and they'll appear in the menu.
+- **Adult mode** is on (`ADULT_CONTENT: true` in `assets/config.js`). It adds:
+  - an 18+ entry screen
+  - an 18+ box on sign-up
+  - an RTA label that parental-control filters recognize
+  - an adults-only notice in the footer
+  - a 2257 statement page at `/2257/`. Fill in `RECORDS_CUSTODIAN` and `RECORDS_ADDRESS` in `assets/config.js` for it.
 - **Banners:** people can pick one of 8 built-in banners or upload their own. The built-in ones are drawn in `assets/core.js` (search for `BANNERS`), so you can add or change designs there.
 - **Thumbnails:** when someone picks a video, a frame from a random moment is chosen and kept as the thumbnail. They can pick another random moment or upload their own image.
 - **Player:** the video page uses The Stash's own player. Keyboard shortcuts:
