@@ -80,10 +80,19 @@ It only imports posts written by the X account linked to the person's Stash acco
    ```
    supabase login
    supabase link --project-ref YOUR_PROJECT_ID
-   supabase functions deploy import-x
+   supabase functions deploy import-x --no-verify-jwt
    ```
-4. Optional but more reliable: if you have X API access, add your bearer token with `supabase secrets set X_BEARER_TOKEN=your_token`. The function uses the official X API when the token is there. Without it, it falls back to X's public embed data. That works for public posts today, but X can change it without notice.
-5. Optional: if you raised the video size limit, run `supabase secrets set MAX_VIDEO_MB=…` to match.
+   The `--no-verify-jwt` part matters. Supabase's built-in login check rejects the browser's CORS preflight request, so imports fail with "blocked by CORS policy". The function checks who's signed in itself. `supabase/config.toml` also sets this, so later deploys keep it off.
+
+   No CLI? In the Supabase dashboard, open **Edge Functions**, then **Deploy a new function**, then **Via Editor**. Name it `import-x`, paste in the contents of `supabase/functions/import-x/index.ts`, and deploy. Then open the function's **Details** or settings and turn off **Verify JWT**.
+4. **Add an X API key. You need this for adult or sensitive posts.** X's public embed data leaves out age-restricted posts, so without a key those imports fail with "can't be imported yet".
+   1. In the [X Developer Console](https://console.x.com), open the app you made for X sign-in.
+   2. Add credits. X now charges pay-per-use: reading a post costs about $0.005, so $5 covers roughly 1,000 imports.
+   3. Under **Keys and tokens**, generate a **Bearer Token** and copy it.
+   4. Save it as a secret on the function, either with `supabase secrets set X_BEARER_TOKEN=paste_token_here`, or in the dashboard under **Edge Functions**, then **Secrets**, as a new secret named `X_BEARER_TOKEN`.
+
+   No redeploy is needed after adding a secret.
+5. Optional: X imports are capped at 512 MB. To change that, run `supabase secrets set MAX_X_IMPORT_MB=…` and set the same number as `MAX_X_IMPORT_MB` in `assets/config.js`.
 
 ## 4. Try it on your computer
 

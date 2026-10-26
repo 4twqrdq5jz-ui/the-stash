@@ -1,11 +1,20 @@
 // The Stash: import a video from an X (Twitter) post.
-// Deploy:  supabase functions deploy import-x
+// Deploy:  supabase functions deploy import-x --no-verify-jwt
+//   (Supabase's built-in JWT check must be OFF: it blocks the browser's CORS preflight.
+//    This function checks the signed-in user itself, below.)
 // Optional secret for the official X API:  supabase secrets set X_BEARER_TOKEN=...
 //
 // Only imports posts written by the X account linked to the signed-in Stash
 // account, so people can bring in their own videos but not other people's.
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+// Headers for calling Supabase as the server. New secret keys (sb_secret_...) aren't JWTs,
+// so they go only in the apikey header; legacy service_role keys go in both.
+function serverHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const h: Record<string, string> = { apikey: SERVICE_KEY, ...extra };
+  if (SERVICE_KEY.startsWith("eyJ")) h.Authorization = `Bearer ${SERVICE_KEY}`;
+  return h;
+}
 function serverKey(): string {
   // Prefer the new secret key; fall back to the legacy service_role key.
   try { const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"); if (keys.default) return keys.default; } catch { /* ignore */ }
@@ -13,7 +22,7 @@ function serverKey(): string {
 }
 const SERVICE_KEY = serverKey();
 const X_BEARER = Deno.env.get("X_BEARER_TOKEN") ?? "";
-const MAX_MB = Number(Deno.env.get("MAX_VIDEO_MB") ?? "50");
+const MAX_MB = Number(Deno.env.get("MAX_X_IMPORT_MB") ?? "512");
 const ALLOWED_ORIGIN = Deno.env.get("SITE_URL") ?? "*";
 
 const cors = {
@@ -45,11 +54,22 @@ function cleanText(t: string): string {
   return String(t || "").replace(/https:\/\/t\.co\/\w+/g, "").replace(/\s+/g, " ").trim();
 }
 
+let apiProblem = "";
 async function fromOfficialApi(id: string): Promise<Found | null> {
   const url = `https://api.x.com/2/tweets/${id}?expansions=attachments.media_keys,author_id&media.fields=type,variants,duration_ms&user.fields=username&tweet.fields=text,note_tweet`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${X_BEARER}` } });
-  if (!r.ok) return null;
+  if (!r.ok){
+    const body = await r.text().catch(() => "");
+    console.error("X API error", r.status, body.slice(0, 500));
+    apiProblem = r.status === 401 ? "The X API key on the import-x function was rejected. Check the X_BEARER_TOKEN secret."
+      : r.status === 402 || /credit|payment|billing/i.test(body) ? "The X developer account is out of API credits. Add credits in the X Developer Console."
+      : r.status === 403 ? "The X developer app isn't allowed to read posts. Check its access in the X Developer Console."
+      : r.status === 429 ? "X is rate-limiting imports right now. Try again in 15 minutes."
+      : "";
+    return null;
+  }
   const j = await r.json();
+  if (j.errors && !j.data) console.error("X API post errors", JSON.stringify(j.errors).slice(0, 500));
   const media = (j.includes?.media ?? []).find((m: any) => m.type === "video" || m.type === "animated_gif");
   const author = j.includes?.users?.[0]?.username ?? "";
   if (!j.data) return null;
@@ -62,9 +82,9 @@ async function fromOfficialApi(id: string): Promise<Found | null> {
 
 async function fromSyndication(id: string): Promise<Found | null> {
   const r = await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=${syndicationToken(id)}`, { headers: { "User-Agent": "Mozilla/5.0 (TheStash importer)" } });
-  if (!r.ok) return null;
+  if (!r.ok){ console.error("X embed data error", r.status); return null; }
   const j = await r.json().catch(() => null);
-  if (!j || !j.user) return null;
+  if (!j || !j.user){ console.error("X embed data had no post", j && j.__typename); return null; }
   const media = (j.mediaDetails ?? []).find((m: any) => m.type === "video" || m.type === "animated_gif");
   return {
     author: j.user.screen_name ?? "", text: cleanText(j.text),
@@ -82,6 +102,7 @@ export async function handle(req: Request): Promise<Response> {
   const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!jwt) return fail(401, "signin", "Sign in to import videos.");
   const ur = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: `Bearer ${jwt}`, apikey: SERVICE_KEY } });
+  // (The user's own session token goes in Authorization; that is a real JWT.)
   if (!ur.ok) return fail(401, "signin", "Your session ended. Sign in again.");
   const user = await ur.json();
   const xIdentity = (user.identities ?? []).find((i: any) => i.provider === "twitter" || i.provider === "x");
@@ -97,7 +118,11 @@ export async function handle(req: Request): Promise<Response> {
   let found: Found | null = null;
   try { if (X_BEARER) found = await fromOfficialApi(post.id); } catch { found = null; }
   try { if (!found) found = await fromSyndication(post.id); } catch { found = null; }
-  if (!found) return fail(404, "not_found", "That post couldn't be found. It may be private, deleted, or age-restricted.");
+  if (!found){
+    if (apiProblem) return fail(502, "x_api", apiProblem);
+    if (!X_BEARER) return fail(404, "needs_api_key", "X doesn't share age-restricted or sensitive posts through its public embed data, so this post can't be imported yet. The site owner needs to add an X API key to the importer (see the README).");
+    return fail(404, "not_found", "That post couldn't be found. Check the link, and make sure the post is public and not deleted.");
+  }
   if (found.author.toLowerCase() !== linked) return fail(403, "not_yours", `You can only import your own posts. This one is by @${found.author}, and your linked X account is @${linked}.`);
   const variants = found.variants.filter(v => /^https:\/\/video\.twimg\.com\//.test(v.url)).sort((a, b) => b.bitrate - a.bitrate);
   if (!variants.length) return fail(422, "no_video", "That post doesn't have a video.");
@@ -113,19 +138,29 @@ export async function handle(req: Request): Promise<Response> {
   if (!chosen) return fail(413, "too_large", `Every version of that video is over the ${MAX_MB} MB limit.`);
 
   const vr = await fetch(chosen.url);
-  if (!vr.ok) return fail(502, "download", "X didn't send the video. Try again in a minute.");
-  const bytes = new Uint8Array(await vr.arrayBuffer());
-  if (bytes.byteLength > max) return fail(413, "too_large", `That video is over the ${MAX_MB} MB limit.`);
+  if (!vr.ok || !vr.body) return fail(502, "download", "X didn't send the video. Try again in a minute.");
 
+  // Stream straight from X into storage so large videos don't have to fit in memory.
   const path = `${user.id}/x-${post.id}-${crypto.randomUUID().slice(0, 8)}.mp4`;
-  const up = await fetch(`${SUPABASE_URL}/storage/v1/object/videos/${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, "Content-Type": "video/mp4", "x-upsert": "false" },
-    body: bytes,
-  });
-  if (!up.ok) return fail(502, "storage", "The video couldn't be saved. Try again.");
+  let up: Response;
+  try {
+    up = await fetch(`${SUPABASE_URL}/storage/v1/object/videos/${path}`, {
+      method: "POST",
+      headers: serverHeaders({ "Content-Type": "video/mp4", "Content-Length": String(chosen.size), "x-upsert": "false" }),
+      body: vr.body,
+      // @ts-ignore: needed for streaming request bodies
+      duplex: "half",
+    });
+  } catch {
+    return fail(502, "storage", "The video couldn't be saved. Try again.");
+  }
+  if (!up.ok){
+    const t = await up.text().catch(() => "");
+    console.error("storage upload failed", up.status, t);
+    return fail(502, "storage", up.status === 413 ? "That video is bigger than the storage limit. Raise the videos bucket limit in Supabase." : "The video couldn't be saved. Try again.");
+  }
 
-  return reply(200, { path, title: found.text.slice(0, 100), description: found.text, duration: found.duration, author: found.author, size: bytes.byteLength });
+  return reply(200, { path, title: found.text.slice(0, 100), description: found.text, duration: found.duration, author: found.author, size: chosen.size });
 }
 
 if (typeof Deno !== "undefined" && (Deno as any).serve) (Deno as any).serve(handle);

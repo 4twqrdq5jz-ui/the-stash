@@ -612,7 +612,7 @@ async function importFromX(link){
   if (!token) throw Object.assign(new Error("Your session ended. Sign in again."), { code: "signin" });
   let r;
   try { r = await fetch(CFG.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/import-x", { method: "POST", headers: { Authorization: "Bearer " + token, apikey: CFG.SUPABASE_ANON_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ url: link }) }); }
-  catch(e){ throw Object.assign(new Error("Couldn't reach the importer. Check your connection, or make sure the import-x function is deployed."), { code: "network" }); }
+  catch(e){ throw Object.assign(new Error("Couldn't reach the importer. If you run this site: deploy import-x with JWT verification turned off (supabase functions deploy import-x --no-verify-jwt). Otherwise, check your connection."), { code: "network" }); }
   let j = null; try { j = await r.json(); } catch(e){}
   if (r.status === 404 && !(j && j.error)) throw Object.assign(new Error("Importing from X isn't set up on this site yet."), { code: "setup" });
   if (!r.ok || !j || j.error) throw Object.assign(new Error((j && j.error && j.error.message) || "The import didn't work. Try again."), { code: (j && j.error && j.error.code) || "error" });
