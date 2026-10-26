@@ -15,12 +15,12 @@ window.STASH_CONFIG = {
 
   // Supabase's provider name for X/Twitter sign-in. Use "twitter" unless your
   // Supabase dashboard lists X under a different provider name (for example "x").
-  X_PROVIDER: "twitter",
+  X_PROVIDER: "x",
 
   // Where people email to get a channel. Shown on "Get a channel" buttons.
   SUPPORT_EMAIL: "southofsomewhere@icloud.com",
 
   // Largest video someone can upload, in MB. Keep this at or below the
   // "videos" bucket limit set in schema.sql and your Supabase plan's upload limit.
-  MAX_VIDEO_MB: 50
+  MAX_VIDEO_MB: 50000
 };
