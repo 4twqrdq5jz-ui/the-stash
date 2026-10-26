@@ -1,16 +1,22 @@
 // The Stash: import a video from an X (Twitter) post.
-// Deploy:  supabase functions deploy import-x
+// Deploy:  supabase functions deploy import-x --no-verify-jwt
 // Optional secret for the official X API:  supabase secrets set X_BEARER_TOKEN=...
 //
 // Only imports posts written by the X account linked to the signed-in Stash
 // account, so people can bring in their own videos but not other people's.
 
+// Grab the default Supabase environment variables natively injected into the container
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+
 function serverKey(): string {
   // Prefer the new secret key; fall back to the legacy service_role key.
-  try { const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"); if (keys.default) return keys.default; } catch { /* ignore */ }
+  try { 
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"); 
+    if (keys.default) return keys.default; 
+  } catch { /* ignore */ }
   return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 }
+
 const SERVICE_KEY = serverKey();
 const X_BEARER = Deno.env.get("X_BEARER_TOKEN") ?? "";
 const MAX_MB = Number(Deno.env.get("MAX_VIDEO_MB") ?? "50");
@@ -21,8 +27,10 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
 const reply = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
+
 const fail = (status: number, code: string, message: string) => reply(status, { error: { code, message } });
 
 type Found = { author: string; text: string; duration: number; variants: { url: string; bitrate: number }[] };
@@ -46,7 +54,7 @@ function cleanText(t: string): string {
 }
 
 async function fromOfficialApi(id: string): Promise<Found | null> {
-  const url = `https://api.x.com/2/tweets/${id}?expansions=attachments.media_keys,author_id&media.fields=type,variants,duration_ms&user.fields=username&tweet.fields=text,note_tweet`;
+  const url = `https://x.com{id}?expansions=attachments.media_keys,author_id&media.fields=type,variants,duration_ms&user.fields=username&tweet.fields=text,note_tweet`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${X_BEARER}` } });
   if (!r.ok) return null;
   const j = await r.json();
@@ -61,7 +69,7 @@ async function fromOfficialApi(id: string): Promise<Found | null> {
 }
 
 async function fromSyndication(id: string): Promise<Found | null> {
-  const r = await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=${syndicationToken(id)}`, { headers: { "User-Agent": "Mozilla/5.0 (TheStash importer)" } });
+  const r = await fetch(`https://twimg.com{id}&lang=en&token=${syndicationToken(id)}`, { headers: { "User-Agent": "Mozilla/5.0 (TheStash importer)" } });
   if (!r.ok) return null;
   const j = await r.json().catch(() => null);
   if (!j || !j.user) return null;
@@ -76,23 +84,31 @@ async function fromSyndication(id: string): Promise<Found | null> {
 export async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (req.method !== "POST") return fail(405, "method", "Use POST.");
-  if (!SUPABASE_URL || !SERVICE_KEY) return fail(500, "setup", "The import function isn't configured.");
+  if (!SUPABASE_URL || !SERVICE_KEY) return fail(500, "setup", "The import function isn't structurally configured inside environment fields.");
 
   // who is asking
   const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!jwt) return fail(401, "signin", "Sign in to import videos.");
+  
+  // Safe authentication parsing point
   const ur = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: `Bearer ${jwt}`, apikey: SERVICE_KEY } });
   if (!ur.ok) return fail(401, "signin", "Your session ended. Sign in again.");
+  
   const user = await ur.json();
   const xIdentity = (user.identities ?? []).find((i: any) => i.provider === "twitter" || i.provider === "x");
   const linked = String(xIdentity?.identity_data?.user_name ?? xIdentity?.identity_data?.preferred_username ?? "").toLowerCase();
   if (!linked) return fail(403, "not_linked", "Connect your X account to import your posts.");
 
-  // which post
+  // Safely extract body payloads without error crashes on missing objects
   let body: any = {};
-  try { body = await req.json(); } catch { /* empty */ }
+  try { 
+    body = await req.json(); 
+  } catch { 
+    return fail(400, "bad_payload", "Invalid or missing JSON payload.");
+  }
+  
   const post = parsePostUrl(body?.url ?? "");
-  if (!post) return fail(400, "bad_link", "That isn't a link to an X post. It should look like https://x.com/you/status/123…");
+  if (!post) return fail(400, "bad_link", "That isn't a link to an X post. It should look like https://x.com");
 
   let found: Found | null = null;
   try { if (X_BEARER) found = await fromOfficialApi(post.id); } catch { found = null; }
