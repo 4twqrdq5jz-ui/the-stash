@@ -10,15 +10,15 @@
   Never put a secret key (sb_secret_...) or service_role key here.
 */
 window.STASH_CONFIG = {
-  SUPABASE_URL: "https://YOUR_PROJECT_ID.supabase.co",
-  SUPABASE_ANON_KEY: "YOUR_SUPABASE_PUBLISHABLE_KEY", // the publishable (or legacy anon) key
+  SUPABASE_URL: "https://xetgnwljpvzbuntvtyxz.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_ZgH3Eno0zNTIjgxXF4eKiQ_nVpzHAa0", // the publishable (or legacy anon) key
 
   // Supabase's provider name for X/Twitter sign-in. Use "twitter" unless your
   // Supabase dashboard lists X under a different provider name (for example "x").
   X_PROVIDER: "twitter",
 
   // Where people email to get a channel. Shown on "Get a channel" buttons.
-  SUPPORT_EMAIL: "support@thestash.gay",
+  SUPPORT_EMAIL: "southofsomewhere@icloud.com",
 
   // Largest video someone can upload, in MB. Keep this at or below the
   // "videos" bucket limit set in schema.sql and your Supabase plan's upload limit.
