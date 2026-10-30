@@ -677,3 +677,5 @@ insert into public.categories (slug, name) values
   ('solo', 'Solo'), ('couples', 'Couples'), ('amateur', 'Amateur'), ('bears', 'Bears'), ('twinks', 'Twinks'),
   ('daddies', 'Daddies'), ('muscle', 'Muscle'), ('jocks', 'Jocks'), ('behind-the-scenes', 'Behind the scenes')
 on conflict (slug) do nothing;
+
+notify pgrst, 'reload schema';

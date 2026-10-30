@@ -58,3 +58,5 @@ create policy "Add video actions" on public.video_actions for insert to authenti
 drop policy if exists "Remove video actions" on public.video_actions;
 create policy "Remove video actions" on public.video_actions for delete to authenticated
   using (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)) or public.is_founder());
+
+notify pgrst, 'reload schema';
