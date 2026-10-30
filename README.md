@@ -7,8 +7,11 @@ A gay adult video site for adults 18+. Anyone 18 or older can watch without an a
 - Channels are profiles people *subscribe* to. Only the founding account **@daphuq_** can create them, from the **Admin** page.
 - Members can apply to be **models** from the Model tab on their profile. They send their legal name, date of birth, a photo of their ID and a selfie holding it. You review each one on the Admin page.
 - Only verified models (and the founding account) can upload.
-- Every upload needs a declaration that everyone in it was 18+ when filmed, consented to filming and publishing, and is tagged.
-- A video stays private until every tagged model approves. Models can remove themselves at any time.
+- New member profiles automatically follow the founder. The founder, approved models, and the reserved **@thestash** website account have a verification mark.
+- The **@thestash** username is reserved for the website account and must be provisioned by site administration.
+- Every upload needs a declaration that everyone in it was 18+ when filmed and consented to filming and publishing. Tagging verified models is optional.
+- A video with model tags stays private until every tagged model approves. Models can remove themselves at any time.
+- Uploads can be assigned to multiple categories and can include multiple named jump-to-action times.
 
 Sign-in options are email and password (with a weak/fair/strong meter and confirm field), Google, and X.
 
@@ -24,6 +27,7 @@ Sign-in options are email and password (with a weak/fair/strong meter and confir
 | `assets/config.js` | **The only file you need to edit**: your Supabase keys |
 | `assets/login-bg.svg` | The login page background. Swap in your own image (see below) |
 | `supabase/schema.sql` | Database tables, security rules, storage buckets and support tools |
+| `supabase/migrations/` | Additive updates for existing databases; apply migrations in filename order |
 | `supabase/functions/import-x/` | The server function that imports videos from X posts |
 | `supabase/reset.sql` | Only if you ran an older version: wipes the old tables so the new schema can install |
 
@@ -35,7 +39,7 @@ The site is plain HTML, CSS and JavaScript with no build step. Supabase (free ti
 
 1. Sign up at [supabase.com](https://supabase.com) and create a new project. Save the database password somewhere safe.
 2. Open `supabase/schema.sql` in a text editor. Near the top, replace `YOUR_EMAIL@example.com` with the email you'll sign up with as **@daphuq_**. Only an account with that email can take the username daphuq_.
-3. In Supabase, open **SQL Editor**, then **New query**. Paste in all of `schema.sql` and click **Run**. You should see "Success". If you ran an older version of The Stash before, run `reset.sql` first.
+3. In Supabase, open **SQL Editor**, then **New query**. Paste in all of `schema.sql` and click **Run**. You should see "Success". For an existing site, apply the additive scripts in `supabase/migrations/` in filename order; only run `reset.sql` if you intentionally want to delete all existing data.
 4. Click **Connect** at the top of your project, or open **Settings**, then **API Keys**. Copy the **Project URL** and the **Publishable key** (starts with `sb_publishable_`) into `assets/config.js`. If there's no publishable key yet, click **Create new API keys** first. Never paste a secret key there. Also set `SUPPORT_EMAIL` there to the inbox where channel requests should go.
 5. Once the site is live, sign up with your founder email and pick the username `daphuq_`. Your profile gets the Founder badge and the support tools.
 

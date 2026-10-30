@@ -115,8 +115,44 @@ async function syncModelTags(videoId, wantIds, haveIds){
   if (add.length){ const r = await sb.from("video_models").insert(add.map(model_id => ({ video_id: videoId, model_id }))); if (r.error && r.error.code !== "23505") throw r.error; }
   for (const m of drop){ const r = await sb.from("video_models").delete().eq("video_id", videoId).eq("model_id", m); if (r.error) throw r.error; }
 }
-function categorySelect(id, cats, selected){
-  return '<select id="' + id + '"><option value="">No category</option>' + cats.map(c => '<option value="' + esc(c.id) + '"' + (c.id === selected ? " selected" : "") + '>' + esc(c.name) + '</option>').join("") + '</select>';
+function categoryPicker(id, cats, selected){
+  selected = new Set(Array.isArray(selected) ? selected : selected ? [selected] : []);
+  return '<div class="categorychecks" id="' + id + '">' + (cats.length ? cats.map(c => '<label class="check"><input type="checkbox" value="' + esc(c.id) + '"' + (selected.has(c.id) ? " checked" : "") + '><span>' + esc(c.name) + '</span></label>').join("") : '<span class="vsmall">No categories available.</span>') + '</div>';
+}
+function actionEditor(id, initial){
+  const rows = initial || [];
+  const row = a => '<div class="jumpeditrow"><div class="field"><label>Action name</label><input class="input" data-action-name maxlength="80" required value="' + esc(a ? a.name : "") + '" placeholder="e.g. First kiss"></div><div class="field"><label>Time</label><div class="xrow"><input class="input" data-action-time required inputmode="numeric" value="' + (a ? esc(S.clock(a.action_time)) : "") + '" placeholder="2:15"><button class="btn sm ghost" data-action-now type="button">Use now</button><button class="btn sm ghost" data-action-remove type="button" aria-label="Remove action">×</button></div></div></div>';
+  return '<div id="' + id + '" class="jumpeditor">' + rows.map(row).join("") + '<button class="btn sm ghost" data-action-add type="button">Add jump to action</button></div>';
+}
+function readActions(root, duration){
+  const actions = [], rows = [...root.querySelectorAll(".jumpeditrow")];
+  for (const r of rows){
+    const name = r.querySelector("[data-action-name]").value.trim(), time = parseTime(r.querySelector("[data-action-time]").value);
+    if (!name || name.length > 80 || time == null || isNaN(time) || time < 0 || time >= duration) return { error: "Each jump to action needs a name and a time inside the video, like 2:15." };
+    actions.push({ name, action_time: Math.round(time * 10) / 10 });
+  }
+  return { actions };
+}
+function wireActionEditor(root, preview){
+  root.addEventListener("click", e => {
+    const remove = e.target.closest("[data-action-remove]");
+    if (remove) remove.closest(".jumpeditrow").remove();
+    const now = e.target.closest("[data-action-now]");
+    if (now) now.parentElement.querySelector("[data-action-time]").value = S.clock(preview.currentTime || 0);
+    const add = e.target.closest("[data-action-add]");
+    if (add){
+      add.insertAdjacentHTML("beforebegin", '<div class="jumpeditrow"><div class="field"><label>Action name</label><input class="input" data-action-name maxlength="80" required placeholder="e.g. First kiss"></div><div class="field"><label>Time</label><div class="xrow"><input class="input" data-action-time required inputmode="numeric" placeholder="2:15"><button class="btn sm ghost" data-action-now type="button">Use now</button><button class="btn sm ghost" data-action-remove type="button" aria-label="Remove action">×</button></div></div></div>');
+    }
+  });
+}
+async function syncVideoCategories(videoId, categoryIds, previousIds){
+  const add = categoryIds.filter(id => !previousIds.includes(id)), drop = previousIds.filter(id => !categoryIds.includes(id));
+  if (add.length) must(await sb.from("video_categories").insert(add.map(category_id => ({ video_id: videoId, category_id }))));
+  for (const category_id of drop) must(await sb.from("video_categories").delete().eq("video_id", videoId).eq("category_id", category_id));
+}
+async function syncVideoActions(videoId, actions){
+  must(await sb.from("video_actions").delete().eq("video_id", videoId));
+  if (actions.length) must(await sb.from("video_actions").insert(actions.map(a => ({ video_id: videoId, name: a.name, action_time: a.action_time }))));
 }
 
 /* ---------- people list modal ---------- */
@@ -459,36 +495,44 @@ function openClip(v, player){
 }
 function openEditVideo(v, ctx){
   const { player, tags, onSaved } = ctx;
-  loadCategories().then(cats => openModal('<h2>Edit video</h2>' +
+  Promise.all([loadCategories(), sb.from("video_actions").select("*").eq("video_id", v.id).order("action_time")]).then(([cats, actionsResult]) => {
+    const actions = must(actionsResult) || [];
+    if (!actions.length && v.action_time != null) actions.push({ name: "Jump to action", action_time: v.action_time });
+    const categoryIds = Array.isArray(v.category_ids) && v.category_ids.length ? v.category_ids : (v.category_id ? [v.category_id] : []);
+    openModal('<h2>Edit video</h2>' +
     '<div class="field"><label for="evTitle">Title</label><input class="input" id="evTitle" maxlength="100" value="' + esc(v.title) + '"></div>' +
-    '<div class="row2"><div class="field"><label for="evCat">Category</label>' + categorySelect("evCat", cats, v.category_id) + '</div>' +
-    '<div class="field"><label for="evAct">Jump to action <span class="hint">time, like 2:15</span></label><div class="xrow"><input class="input" id="evAct" value="' + (v.action_time ? S.clock(v.action_time) : "") + '" placeholder="none"><button class="btn sm ghost" id="evActNow" type="button">Use now</button></div></div></div>' +
-    '<div class="field"><label>Models</label><div id="evModels"></div></div>' +
+    '<div class="field"><label>Categories</label>' + categoryPicker("evCats", cats, categoryIds) + '</div>' +
+    '<div class="field"><label>Jump to actions <span class="hint">optional</span></label>' + actionEditor("evActions", actions) + '</div>' +
+    '<div class="field"><label>Models <span class="hint">optional</span></label><div id="evModels"></div></div>' +
     '<div class="field"><label>Thumbnail</label><div class="thumbpick"><div class="tp" id="evTp">' + (v.thumb_path ? '<img src="' + esc(S.pub("images", v.thumb_path)) + '" alt="Current thumbnail">' : "No thumbnail yet") + '</div><div><div class="tbtns"><button class="btn sm ghost" id="evFrame" type="button">Use the frame showing now</button><label class="btn sm ghost" style="cursor:pointer">Upload an image<input type="file" id="evImg" accept="image/png,image/jpeg,image/webp" class="sr"></label></div><p class="vsmall" style="margin-top:6px">Pause the video on the moment you want, then use that frame.</p></div></div></div>' +
     '<div class="err" id="evErr" role="alert"></div><div class="foot"><button class="btn ghost" data-close>Cancel</button><button class="btn primary" id="evSave">Save changes</button></div>', m => {
     const mp = modelPicker($("#evModels", m), tags.map(t => ({ ...t.profile, _status: t.status })));
+    wireActionEditor($("#evActions", m), player);
     let newThumb = null, tUrl = null;
     const showT = () => { if (tUrl) URL.revokeObjectURL(tUrl); tUrl = URL.createObjectURL(newThumb); $("#evTp", m).innerHTML = '<img src="' + tUrl + '" alt="New thumbnail">'; };
-    $("#evActNow", m).addEventListener("click", () => { $("#evAct", m).value = S.clock(player.currentTime || 0); });
     $("#evFrame", m).addEventListener("click", async () => { const b = await S.frameFromVideo(player); if (!b){ $("#evErr", m).textContent = "That frame couldn't be read. Play the video for a moment, pause it, and try again."; return; } newThumb = b; showT(); $("#evErr", m).textContent = ""; });
     $("#evImg", m).addEventListener("change", async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; try { newThumb = await S.cropImage(f, 1280, 720); showT(); } catch(x){ $("#evErr", m).textContent = x.message; } });
     $("#evSave", m).addEventListener("click", async () => {
-      const err = $("#evErr", m), title = $("#evTitle", m).value.trim(), category_id = $("#evCat", m).value || null;
-      const at = parseTime($("#evAct", m).value), d = isFinite(player.duration) ? player.duration : Infinity;
+      const err = $("#evErr", m), title = $("#evTitle", m).value.trim();
+      const category_ids = [...$("#evCats", m).querySelectorAll("input:checked")].map(i => i.value);
+      const parsed = readActions($("#evActions", m), isFinite(player.duration) ? player.duration : Infinity);
       if (!title){ err.textContent = "Add a title."; return; }
-      if (at !== null && (isNaN(at) || at < 0 || at >= d)){ err.textContent = "Jump to action needs a time inside the video, like 2:15."; return; }
+      if (parsed.error){ err.textContent = parsed.error; return; }
       const b = $("#evSave", m); b.disabled = true; b.innerHTML = '<span class="spin"></span>Saving…';
       try {
-        const upd = { title, category_id, action_time: at };
+        const upd = { title, category_id: category_ids[0] || null, action_time: parsed.actions[0] ? parsed.actions[0].action_time : null };
         let oldThumb = null;
         if (newThumb){ const p = S.user.id + "/thumb-" + v.id + "-" + Date.now() + ".jpg"; must(await sb.storage.from("images").upload(p, newThumb, { contentType: "image/jpeg" })); oldThumb = v.thumb_path; upd.thumb_path = p; }
         must(await sb.from("videos").update(upd).eq("id", v.id));
+        await syncVideoCategories(v.id, category_ids, categoryIds);
+        await syncVideoActions(v.id, parsed.actions);
         await syncModelTags(v.id, mp.ids(), tags.map(t => t.model_id));
         if (oldThumb) sb.storage.from("images").remove([oldThumb]).then(() => {});
         closeModal(); toast("Video saved"); onSaved();
       } catch(e){ err.textContent = errText(e, "Your changes didn't save. Try again."); b.disabled = false; b.textContent = "Save changes"; }
     });
-  }));
+  });
+  });
 }
 
 PAGES.watch = async () => {
@@ -496,16 +540,20 @@ PAGES.watch = async () => {
   const v = id ? (await sb.from("video_feed").select("*").eq("id", id).maybeSingle()).data : null;
   if (!v){ setTitle("Video"); el.innerHTML = empty("This video isn't available", "It may have been removed by its creator.", '<a class="btn primary" href="/">Go home</a>'); return; }
   setTitle(v.title);
-  const [owR, st, tagR, cats, clipR, mine2] = await Promise.all([
+  const [owR, st, tagR, cats, clipR, mine2, actionR] = await Promise.all([
     sb.from("profiles").select("*").eq("id", v.owner_id).maybeSingle(), myState(),
     sb.from("video_models").select("*").eq("video_id", v.id), loadCategories(),
-    clipId ? sb.from("clips").select("*").eq("id", clipId).eq("video_id", v.id).maybeSingle() : { data: null }, null
+    clipId ? sb.from("clips").select("*").eq("id", clipId).eq("video_id", v.id).maybeSingle() : { data: null }, null,
+    sb.from("video_actions").select("*").eq("video_id", v.id).order("action_time")
   ]);
   const owner = owR.data || { id: v.owner_id, username: "unknown", kind: "personal" };
   const clip = clipR.data;
   const tagRows = tagR.data || [], tagProfiles = await profilesByIds(tagRows.map(t => t.model_id));
   let tags = tagRows.map(t => ({ ...t, profile: tagProfiles.get(t.model_id) })).filter(t => t.profile);
-  const category = cats.find(c => c.id === v.category_id);
+  const categoryIds = Array.isArray(v.category_ids) && v.category_ids.length ? v.category_ids : (v.category_id ? [v.category_id] : []);
+  const categories = cats.filter(c => categoryIds.includes(c.id));
+  const actions = must(actionR) || [];
+  if (!actions.length && v.action_time != null) actions.push({ name: "Jump to action", action_time: v.action_time });
   const [ownerStats, manager] = await Promise.all([ profileStats(owner.id), isChannel(owner) && !owner.user_id ? managerOf(owner) : null ]);
   const mgrStats = manager ? await profileStats(manager.id) : null;
   let likeCount = v.like_count || 0, liked = st.likes.has(v.id), disliked = st.dislikes.has(v.id), faved = st.favs.has(v.id);
@@ -521,12 +569,12 @@ PAGES.watch = async () => {
     '<section class="comments" aria-labelledby="w-ccount"><h2 id="w-ccount">Comments</h2><div id="w-composer"></div><div id="w-clist"><div class="vsmall">Loading comments…</div></div></section></div><aside class="wside" id="w-next" aria-label="Recommended"></aside></div>';
   $(".wtitle", el).textContent = clip && clip.title ? clip.title : v.title;
   if (param("thumbfail") === "1") toast("The video published, but its thumbnail didn't upload. Use Edit to add one.");
-  if (param("tagfail") === "1") toast("The video uploaded, but tagging didn't work. Use Edit to tag everyone in it.");
-  const live = tags.some(t => t.status === "approved") && !tags.some(t => t.status === "pending");
+  if (param("tagfail") === "1") toast("The video uploaded, but its model tags didn't save. Use Edit to manage tags.");
+  const live = (!tags.length || tags.some(t => t.status === "approved")) && !tags.some(t => t.status === "pending");
   if (!live){
     const waiting = tags.filter(t => t.status === "pending").map(t => "@" + t.profile.username);
     const box = document.createElement("div"); box.className = "notice pendingbox"; box.setAttribute("role", "status");
-    box.innerHTML = '<b>Only you can see this video for now.</b> ' + (waiting.length ? "It goes public once " + esc(waiting.join(", ")) + (waiting.length === 1 ? " approves" : " approve") + " being tagged." : "It goes public once at least one verified model is tagged and approves. Use Edit to tag everyone in it.");
+    box.innerHTML = '<b>Only you can see this video for now.</b> ' + (waiting.length ? "It goes public once " + esc(waiting.join(", ")) + (waiting.length === 1 ? " approves" : " approve") + " being tagged." : "It goes public once a tagged model approves. Use Edit to manage model tags.");
     $(".wmain", el).insertBefore(box, $(".wmain", el).firstChild);
   }
 
@@ -538,7 +586,7 @@ PAGES.watch = async () => {
   const startAt = clip ? clip.start_s : (parseFloat(param("t")) > 0 ? parseFloat(param("t")) : 0);
   const P = S.mountPlayer($("#player"), {
     sources, poster: v.thumb_path ? S.pub("images", v.thumb_path) : "", startAt,
-    actionTime: v.action_time || null, clip: clip ? { start: clip.start_s, end: clip.end_s } : null, theater,
+    actionTime: actions.length ? actions[0].action_time : (v.action_time || null), clip: clip ? { start: clip.start_s, end: clip.end_s } : null, theater,
     onTheater: on => { theater = on; S.lsSet("stash:theater", on ? "1" : "0"); $("#watchGrid").classList.toggle("theater", on); },
     onNext: () => { if (nextUrl) goNext(); else toast("There's nothing up next yet."); },
     onEnded: () => {
@@ -558,9 +606,9 @@ PAGES.watch = async () => {
   if (param("autoplay") === "1" || clip) P.play();
 
   const sub = () => {
-    $("#w-sub").innerHTML = '<span>' + esc(timeAgo(v.created_at)) + '</span>' + (category ? '<a class="catchip" href="' + esc(catUrl(category)) + '">' + esc(category.name) + '</a>' : "") +
-      (v.action_time ? '<button class="linkbtn" id="jumpLink">⚡ Jump to action (' + S.clock(v.action_time) + ')</button>' : "");
-    const j = $("#jumpLink"); if (j) j.addEventListener("click", () => P.jumpToAction());
+    $("#w-sub").innerHTML = '<span>' + esc(timeAgo(v.created_at)) + '</span>' + categories.map(c => '<a class="catchip" href="' + esc(catUrl(c)) + '">' + esc(c.name) + '</a>').join("") +
+      actions.map((a, i) => '<button class="linkbtn" data-jump-action="' + i + '">⚡ ' + esc(a.name) + ' (' + S.clock(a.action_time) + ')</button>').join("");
+    $("#w-sub").querySelectorAll("[data-jump-action]").forEach(b => b.addEventListener("click", () => { const a = actions[+b.dataset.jumpAction]; P.seekTo(a.action_time); P.play(); }));
   };
   const modelsRow = () => {
     const shown = tags.filter(t => t.status === "approved" || mine || (S.signedIn() && t.model_id === S.profile.id));
@@ -663,7 +711,7 @@ PAGES.watch = async () => {
     const approvedModels = tags.filter(t => t.status === "approved").map(t => t.model_id);
     const [byModel, byCat, byOwner] = await Promise.all([
       approvedModels.length ? sb.from("video_models").select("video_id").in("model_id", approvedModels).eq("status", "approved").neq("video_id", v.id).limit(40) : { data: [] },
-      v.category_id ? sb.from("video_feed").select("*").eq("category_id", v.category_id).neq("id", v.id).order("created_at", { ascending: false }).limit(12) : { data: [] },
+      categoryIds.length ? sb.from("video_feed").select("*").overlaps("category_ids", categoryIds).neq("id", v.id).order("created_at", { ascending: false }).limit(12) : { data: [] },
       sb.from("video_feed").select("*").eq("owner_id", v.owner_id).neq("id", v.id).order("created_at", { ascending: false }).limit(8)
     ]);
     const modelVids = await videosByIds([...new Set((byModel.data || []).map(r => r.video_id))].slice(0, 12));
@@ -700,7 +748,7 @@ PAGES.watch = async () => {
       let sc = 0;
       if (x.owner_id === v.owner_id) sc += 4;
       if (fset.has(x.owner_id)) sc += 3;
-      if (v.category_id && x.category_id === v.category_id) sc += 2;
+      if (categoryIds.some(id => (x.category_ids || [x.category_id]).includes(id))) sc += 2;
       sc += Math.log2(1 + (x.like_count || 0)) * 0.9 - Math.log2(1 + (x.dislike_count || 0)) * 0.5;
       sc += 2 * Math.exp(-((now - Date.parse(x.created_at)) / 86400000) / 14);
       String(x.title).toLowerCase().split(/\W+/).forEach(w => { if (words.has(w)) sc += 1.2; });
@@ -731,22 +779,22 @@ PAGES.upload = async () => {
     '<div id="picker"><div class="srctabs" role="tablist" aria-label="Where the video comes from"><button role="tab" data-src="device">From your device</button><button role="tab" data-src="x">From X</button></div><div id="srcPane"></div></div>' +
     '<div id="upform" hidden><div class="preview"><video id="vprev" controls playsinline muted></video></div><div class="vsmall" id="vinfo" style="margin-top:6px"></div>' +
     '<div class="field"><label for="vtitle">Title <span class="hint">(required)</span></label><input class="input" id="vtitle" maxlength="100"></div>' +
-    '<div class="row2"><div class="field"><label for="vcat">Category</label>' + categorySelect("vcat", cats, param("cat") ? (cats.find(c => c.slug === param("cat")) || {}).id : "") + '</div>' +
-    '<div class="field"><label for="vact">Jump to action <span class="hint">optional, like 2:15</span></label><div class="xrow"><input class="input" id="vact" placeholder="none" inputmode="numeric"><button class="btn sm ghost" id="vactNow" type="button">Use preview time</button></div></div></div>' +
-    '<div class="field"><label>Everyone in this video <span class="hint">required. Each person must be a verified model and approve the tag before the video goes public.</span></label><div id="vmodels"></div></div>' +
+    '<div class="field"><label>Categories <span class="hint">optional; select all that apply</span></label>' + categoryPicker("vcats", cats, param("cat") ? (cats.find(c => c.slug === param("cat")) || {}).id : "") + '</div>' +
+    '<div class="field"><label>Jump to actions <span class="hint">optional; each action needs a name and time</span></label>' + actionEditor("vactions", []) + '</div>' +
+    '<div class="field"><label>Models <span class="hint">optional. Every model you tag must approve before the video goes public.</span></label><div id="vmodels"></div></div>' +
     '<div class="field"><label for="vto">Post to</label><select id="vto">' + targets.map(t => '<option value="' + esc(t.id) + '">' + esc(displayName(t)) + ' (@' + esc(t.username) + ')' + (isChannel(t) ? ", channel" : ", your profile") + '</option>').join("") + '</select>' +
       (targets.some(isChannel) ? "" : '<p class="vsmall" style="margin:6px 0 0">Videos post to your profile, where people can follow you.</p>') + '</div>' +
     '<div class="field"><label>Thumbnail <span class="hint">picked from a random moment in your video</span></label><div class="thumbpick"><div class="tp" id="tprev">Choosing a frame…</div><div><div class="vsmall" id="tinfo"></div><div class="tbtns"><button class="btn sm ghost" id="tShuffle" disabled>Pick another moment</button><label class="btn sm ghost" style="cursor:pointer">Upload an image<input type="file" id="vthumb" accept="image/png,image/jpeg,image/webp" class="sr"></label></div></div></div></div>' +
     '<fieldset class="consent"><legend>Before you publish</legend>' +
       '<label class="check"><input type="checkbox" id="cs1"><span>Everyone who appears in this video was 18 or older when it was filmed.</span></label>' +
-      '<label class="check"><input type="checkbox" id="cs2"><span>Everyone who appears agreed to be filmed and agreed to this video being published on The Stash, and is tagged above.</span></label>' +
+      '<label class="check"><input type="checkbox" id="cs2"><span>Everyone who appears agreed to be filmed and agreed to this video being published on The Stash.</span></label>' +
       '<label class="check"><input type="checkbox" id="cs3"><span>I own this video or have permission to post it, and I keep the age and consent records for everyone in it.</span></label></fieldset>' +
     '<div class="progress" id="prog" hidden><i></i></div><div class="vsmall" id="progText"></div><div class="err" id="uperr" role="alert"></div>' +
     '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="reset">Choose another video</button><button class="btn primary" id="pub">Publish</button></div></div></div>';
   if (want && targets.some(t => t.id === want)) $("#vto").value = want;
   let file = null, ftype = null, prevUrl = null, busy = false, grabber = null, thumb = null, thumbUrl = null, gen = 0, imported = null;
   const picker = modelPicker($("#vmodels"), S.profile.is_model ? [S.profile] : []);
-  $("#vactNow").addEventListener("click", () => { const pv = $("#vprev"); $("#vact").value = S.clock(pv.currentTime || 0); });
+  wireActionEditor($("#vactions"), $("#vprev"));
 
   const paintSource = () => {
     el.querySelectorAll("[data-src]").forEach(b => { const on = b.dataset.src === source; b.classList.toggle("cur", on); b.setAttribute("aria-selected", String(on)); });
@@ -826,18 +874,20 @@ PAGES.upload = async () => {
   }
   $("#tShuffle").addEventListener("click", pickFrame);
   $("#vthumb").addEventListener("change", async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; try { gen++; thumb = { blob: await S.cropImage(f, 1280, 720), time: null, custom: true }; showThumb(); $("#tShuffle").disabled = !grabber; } catch(x){ toast(x.message); } });
-  $("#reset").addEventListener("click", () => { if (busy) return; gen++; dropImported(); file = null; thumb = null; if (grabber) grabber.close(); grabber = null; if (prevUrl) URL.revokeObjectURL(prevUrl); prevUrl = null; $("#vprev").removeAttribute("src"); $("#vtitle").value = ""; $("#vact").value = ""; $("#tprev").textContent = "Choosing a frame…"; $("#tinfo").textContent = ""; $("#upform").hidden = true; $("#picker").hidden = false; paintSource(); });
+  $("#reset").addEventListener("click", () => { if (busy) return; gen++; dropImported(); file = null; thumb = null; if (grabber) grabber.close(); grabber = null; if (prevUrl) URL.revokeObjectURL(prevUrl); prevUrl = null; $("#vprev").removeAttribute("src"); $("#vtitle").value = ""; $("#vactions").querySelectorAll(".jumpeditrow").forEach(r => r.remove()); $("#tprev").textContent = "Choosing a frame…"; $("#tinfo").textContent = ""; $("#upform").hidden = true; $("#picker").hidden = false; paintSource(); });
   window.addEventListener("beforeunload", e => { if (busy || imported){ if (busy){ e.preventDefault(); e.returnValue = ""; } } });
   window.addEventListener("pagehide", () => { if (!busy && imported && !imported.published) dropImported(); });
   $("#pub").addEventListener("click", async () => {
     if (busy) return;
-    const err = $("#uperr"), btn = $("#pub"), title = $("#vtitle").value.trim(), owner_id = $("#vto").value, category_id = $("#vcat").value || null;
+    const err = $("#uperr"), btn = $("#pub"), title = $("#vtitle").value.trim(), owner_id = $("#vto").value;
+    const category_ids = [...$("#vcats").querySelectorAll("input:checked")].map(i => i.value);
     if (!file){ err.textContent = "Choose a video first."; return; }
     if (!title){ err.textContent = "Add a title."; $("#vtitle").focus(); return; }
-    if (!picker.ids().length){ err.textContent = "Tag everyone who appears in the video. Each person needs to be a verified model."; $("#mpQ").focus(); return; }
     if (!$("#cs1").checked || !$("#cs2").checked || !$("#cs3").checked){ err.textContent = "Confirm all three statements to publish."; return; }
-    const action_time = parseTime($("#vact").value), dlen = grabber ? await grabber.duration() : 0;
-    if (action_time !== null && (isNaN(action_time) || action_time < 0 || (dlen && action_time >= dlen))){ err.textContent = "Jump to action needs a time inside the video, like 2:15."; $("#vact").focus(); return; }
+    const dlen = grabber ? await grabber.duration() : 0;
+    const parsedActions = readActions($("#vactions"), dlen || Infinity);
+    if (parsedActions.error){ err.textContent = parsedActions.error; return; }
+    const action_time = parsedActions.actions[0] ? parsedActions.actions[0].action_time : null;
     if (!S.manages(owner_id)){ err.textContent = "Pick where to post this video."; return; }
     busy = true; err.textContent = ""; btn.disabled = true; $("#reset").disabled = true; btn.innerHTML = '<span class="spin"></span>Publishing…';
     const prog = $("#prog"), bar = prog.querySelector("i"), ptxt = $("#progText");
@@ -862,11 +912,26 @@ PAGES.upload = async () => {
       if (r.error) r = await sb.storage.from("images").upload(p, thumb.blob, { contentType: "image/jpeg", upsert: true });
       if (!r.error) tpath = p; else { thumbFail = true; console.warn("Thumbnail upload failed:", r.error); }
     }
-    const r = await sb.from("videos").insert({ owner_id, title, description: "", category_id, action_time, consent_attested_at: new Date().toISOString(), video_path: vpath, thumb_path: tpath, thumb_time: thumb && !thumb.custom ? Math.round(thumb.time * 100) / 100 : null, duration: Math.round(duration || 0) }).select("id").single();
+    const r = await sb.from("videos").insert({ owner_id, title, description: "", category_id: category_ids[0] || null, action_time, consent_attested_at: new Date().toISOString(), video_path: vpath, thumb_path: tpath, thumb_time: thumb && !thumb.custom ? Math.round(thumb.time * 100) / 100 : null, duration: Math.round(duration || 0) }).select("id").single();
     if (r.error){ if (!imported) sb.storage.from("videos").remove([vpath]).then(() => {}); if (tpath) sb.storage.from("images").remove([tpath]).then(() => {}); fail(errText(r.error, "The video didn't publish. Try again.")); return; }
     if (imported) imported.published = true;
     const want = picker.ids();
-    try { await syncModelTags(r.data.id, want, []); } catch(e){ busy = false; location.href = watchUrl(r.data.id) + "&tagfail=1"; return; }
+    try {
+      await syncVideoCategories(r.data.id, category_ids, []);
+      await syncVideoActions(r.data.id, parsedActions.actions);
+      await syncModelTags(r.data.id, want, []);
+    } catch(e){
+      const message = errText(e, "The video details didn't save. Try publishing again.");
+      const cleanup = await sb.from("videos").delete().eq("id", r.data.id);
+      if (cleanup.error) fail(message + " The partially published video could not be removed automatically; contact support.");
+      else {
+        await sb.storage.from("videos").remove([vpath]);
+        if (tpath) await sb.storage.from("images").remove([tpath]);
+        imported = null;
+        fail(message);
+      }
+      return;
+    }
     busy = false; if (grabber) grabber.close(); location.href = watchUrl(r.data.id) + (thumbFail ? "&thumbfail=1" : "");
   });
   paintSource();
@@ -1109,8 +1174,11 @@ PAGES.categories = async () => {
   const cats = await loadCategories(true);
   const counts = new Map(), first = new Map();
   if (cats.length){
-    const vids = must(await sb.from("video_feed").select("id,category_id,thumb_path,owner_id,created_at").in("category_id", cats.map(c => c.id)).order("created_at", { ascending: false }).limit(2000)) || [];
-    vids.forEach(v => { counts.set(v.category_id, (counts.get(v.category_id) || 0) + 1); if (!first.has(v.category_id)) first.set(v.category_id, v); });
+    const vids = must(await sb.from("video_feed").select("id,category_id,category_ids,thumb_path,owner_id,created_at").order("created_at", { ascending: false }).limit(2000)) || [];
+    vids.forEach(v => (v.category_ids || (v.category_id ? [v.category_id] : [])).forEach(id => {
+      counts.set(id, (counts.get(id) || 0) + 1);
+      if (!first.has(id)) first.set(id, v);
+    }));
   }
   let h = '<div class="pagehead"><h1>Categories</h1>' + (S.isFounder() ? '<button class="btn primary" id="addCat">Add category</button>' : "") + '</div>';
   h += cats.length ? '<div class="catgrid">' + cats.map(c => { const v = first.get(c.id);
@@ -1126,7 +1194,7 @@ PAGES.category = async () => {
   setTitle(c.name);
   let offset = 0, all = [];
   const load = async () => {
-    const rows = must(await sb.from("video_feed").select("*").eq("category_id", c.id).order("created_at", { ascending: false }).range(offset, offset + PAGE - 1)) || [];
+    const rows = must(await sb.from("video_feed").select("*").contains("category_ids", [c.id]).order("created_at", { ascending: false }).range(offset, offset + PAGE - 1)) || [];
     offset += rows.length; all = all.concat(rows);
     const maps = await hydrate(all);
     el.innerHTML = '<div class="pagehead"><div><a class="vsmall" href="/categories/">All categories</a><h1>' + esc(c.name) + '</h1></div><div class="acts">' + (S.signedIn() ? '<a class="btn ghost" href="/upload/?cat=' + esc(encodeURIComponent(c.slug)) + '">Upload to ' + esc(c.name) + '</a>' : "") + (S.isFounder() ? '<button class="btn ghost" id="renCat">Rename</button>' : "") + '</div></div>' +

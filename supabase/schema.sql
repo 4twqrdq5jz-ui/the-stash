@@ -1,6 +1,6 @@
 -- The Stash: database schema
 -- Run this whole file once in Supabase: SQL Editor > New query > paste > Run.
--- Already ran an older version? Run reset.sql first, then this file.
+-- Existing install? Apply the additive scripts in migrations/ instead. reset.sql deletes all Stash data.
 
 -- ============================================================
 -- STEP 1: replace YOUR_EMAIL@example.com below with the email you will
@@ -27,6 +27,7 @@ create table if not exists public.profiles (
   kind text not null default 'personal' check (kind in ('personal','channel')),
   is_founder boolean not null default false,
   is_model boolean not null default false,
+  is_verified boolean not null default false,
   username text not null,
   display_name text not null default '',
   bio text not null default '',
@@ -42,6 +43,7 @@ create table if not exists public.profiles (
   constraint banner_preset_len check (banner_preset is null or char_length(banner_preset) <= 40)
 );
 alter table public.profiles add column if not exists is_model boolean not null default false;
+alter table public.profiles add column if not exists is_verified boolean not null default false;
 create unique index if not exists profiles_username_key on public.profiles (lower(username));
 
 -- ---------- categories ----------
@@ -72,6 +74,25 @@ alter table public.videos add column if not exists consent_attested_at timestamp
 create index if not exists videos_created_idx on public.videos(created_at desc);
 create index if not exists videos_category_idx on public.videos(category_id);
 create index if not exists videos_owner_idx on public.videos(owner_id);
+
+create table if not exists public.video_categories (
+  video_id uuid not null references public.videos(id) on delete cascade,
+  category_id uuid not null references public.categories(id) on delete cascade,
+  primary key (video_id, category_id)
+);
+create index if not exists video_categories_category_idx on public.video_categories(category_id, video_id);
+insert into public.video_categories (video_id, category_id)
+  select id, category_id from public.videos where category_id is not null
+on conflict do nothing;
+
+create table if not exists public.video_actions (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  name text not null check (char_length(btrim(name)) between 1 and 80),
+  action_time real not null check (action_time >= 0),
+  created_at timestamptz not null default now()
+);
+create index if not exists video_actions_video_idx on public.video_actions(video_id, action_time);
 
 create table if not exists public.comments (
   id uuid primary key default gen_random_uuid(),
@@ -210,8 +231,8 @@ language sql stable security definer set search_path = public as $$
   select kind from public.profiles where id = pid;
 $$;
 
--- Stops people changing their own kind, owner or founder status,
--- and reserves the founder username for the founder email.
+-- Stops people changing their own kind, owner, verification status,
+-- and reserves the founder and website usernames.
 create or replace function public.profiles_guard() returns trigger
 language plpgsql security definer set search_path = public, auth as $$
 declare
@@ -221,12 +242,13 @@ declare
 begin
   if tg_op = 'INSERT' then
     if not admin_call then
-      new.kind := 'personal'; new.is_founder := false; new.is_model := false;
+      new.kind := 'personal'; new.is_founder := false; new.is_model := false; new.is_verified := false;
       new.user_id := auth.uid(); new.manager_id := auth.uid();
     end if;
   else
     if not admin_call then
       new.kind := old.kind; new.user_id := old.user_id; new.manager_id := old.manager_id; new.is_founder := old.is_founder; new.is_model := old.is_model;
+      new.is_verified := old.is_verified;
     end if;
   end if;
   select founder_username, founder_email into f_user, f_email from public.stash_settings limit 1;
@@ -237,10 +259,31 @@ begin
     end if;
     new.is_founder := true;
   end if;
+  if lower(new.username) = 'thestash'
+     and (tg_op = 'INSERT' or lower(old.username) <> 'thestash')
+     and not admin_call then
+    raise exception 'That username is reserved.' using errcode = 'P0001';
+  end if;
+  new.is_verified := new.is_founder or new.is_model
+    or (lower(new.username) = 'thestash' and (admin_call or (tg_op = 'UPDATE' and old.is_verified)));
   return new;
 end $$;
 drop trigger if exists profiles_guard on public.profiles;
 create trigger profiles_guard before insert or update on public.profiles for each row execute function public.profiles_guard();
+
+create or replace function public.follow_founder_for_new_profile() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if new.kind <> 'personal' or new.user_id is null then return new; end if;
+  insert into public.follows (follower_id, followee_id)
+    select new.id, p.id from public.profiles p
+    where p.is_founder and p.id <> new.id
+  on conflict do nothing;
+  return new;
+end $$;
+drop trigger if exists follow_founder_for_new_profile on public.profiles;
+create trigger follow_founder_for_new_profile after insert on public.profiles
+  for each row execute function public.follow_founder_for_new_profile();
 
 -- ---------- support tools (founding account only) ----------
 -- Turn a profile into a channel, or back. Followers become subscribers and vice versa.
@@ -360,7 +403,11 @@ create view public.video_feed with (security_invoker = true) as
   select v.*,
     (select count(*) from public.likes l where l.video_id = v.id)::int as like_count,
     (select count(*) from public.dislikes d where d.video_id = v.id)::int as dislike_count,
-    (select count(*) from public.comments c where c.video_id = v.id)::int as comment_count
+    (select count(*) from public.comments c where c.video_id = v.id)::int as comment_count,
+    coalesce(
+      (select array_agg(vc.category_id order by vc.category_id) from public.video_categories vc where vc.video_id = v.id),
+      case when v.category_id is null then array[]::uuid[] else array[v.category_id] end
+    ) as category_ids
   from public.videos v;
 
 drop view if exists public.profile_stats;
@@ -385,6 +432,8 @@ alter table public.subscriptions enable row level security;
 alter table public.playlists enable row level security;
 alter table public.playlist_items enable row level security;
 alter table public.categories enable row level security;
+alter table public.video_categories enable row level security;
+alter table public.video_actions enable row level security;
 alter table public.favorites enable row level security;
 alter table public.dislikes enable row level security;
 alter table public.clips enable row level security;
@@ -406,12 +455,12 @@ create policy "Create own profile" on public.profiles for insert to authenticate
 drop policy if exists "Edit managed profile" on public.profiles;
 create policy "Edit managed profile" on public.profiles for update to authenticated using (manager_id = auth.uid()) with check (manager_id = auth.uid());
 
--- A video is public only once at least one model is tagged and every tagged model has approved.
--- Until then only its uploader, its tagged models and the founder can see it.
+-- Videos without model tags are public; tagged videos stay private until all tags are approved.
 create or replace function public.video_is_live(vid uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.video_models m where m.video_id = vid and m.status = 'approved')
-     and not exists (select 1 from public.video_models m where m.video_id = vid and m.status = 'pending');
+  select not exists (select 1 from public.video_models m where m.video_id = vid and m.status = 'pending')
+     and (not exists (select 1 from public.video_models m where m.video_id = vid)
+          or exists (select 1 from public.video_models m where m.video_id = vid and m.status = 'approved'));
 $$;
 create or replace function public.is_tagged_in(vid uuid) returns boolean
 language sql stable security definer set search_path = public as $$
@@ -434,6 +483,26 @@ drop policy if exists "Edit video" on public.videos;
 create policy "Edit video" on public.videos for update to authenticated using (public.manages(owner_id)) with check (public.manages(owner_id));
 drop policy if exists "Delete video" on public.videos;
 create policy "Delete video" on public.videos for delete to authenticated using (public.manages(owner_id) or public.is_founder());
+
+drop policy if exists "Read video categories" on public.video_categories;
+create policy "Read video categories" on public.video_categories for select
+  using (public.video_is_live(video_id) or exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)) or public.is_founder());
+drop policy if exists "Add video categories" on public.video_categories;
+create policy "Add video categories" on public.video_categories for insert to authenticated
+  with check (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)));
+drop policy if exists "Remove video categories" on public.video_categories;
+create policy "Remove video categories" on public.video_categories for delete to authenticated
+  using (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)) or public.is_founder());
+
+drop policy if exists "Read video actions" on public.video_actions;
+create policy "Read video actions" on public.video_actions for select
+  using (public.video_is_live(video_id) or exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)) or public.is_founder());
+drop policy if exists "Add video actions" on public.video_actions;
+create policy "Add video actions" on public.video_actions for insert to authenticated
+  with check (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)));
+drop policy if exists "Remove video actions" on public.video_actions;
+create policy "Remove video actions" on public.video_actions for delete to authenticated
+  using (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)) or public.is_founder());
 
 drop policy if exists "Post comment" on public.comments;
 create policy "Post comment" on public.comments for insert to authenticated with check (public.is_me(author_id));

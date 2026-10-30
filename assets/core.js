@@ -132,7 +132,7 @@ function anniversary(created, now){
 function badges(p){
   if (!p) return "";
   const a = p.created_at ? anniversary(p.created_at) : null;
-  return (a && a.today ? '<span class="badge anniv" title="' + ordinal(a.years) + ' Stash anniversary today">🎂 ' + a.years + (a.years === 1 ? " year" : " years") + '</span>' : "") + (p.is_founder ? '<span class="badge founder" title="Founding account">Founder</span>' : "") + (p.kind === "channel" ? '<span class="badge channel">Channel</span>' : "") + (p.is_model ? '<span class="badge model">Model</span>' : "");
+  return (a && a.today ? '<span class="badge anniv" title="' + ordinal(a.years) + ' Stash anniversary today">🎂 ' + a.years + (a.years === 1 ? " year" : " years") + '</span>' : "") + (p.is_verified ? '<span class="badge verified" title="Verified account" aria-label="Verified account">✓</span>' : "") + (p.is_founder ? '<span class="badge founder" title="Founding account">Founder</span>' : "") + (p.kind === "channel" ? '<span class="badge channel">Channel</span>' : "") + (p.is_model ? '<span class="badge model">Model</span>' : "");
 }
 const displayName = p => p ? (p.display_name || p.username || "Unknown") : "Unknown";
 function chAvatar(c, size){ return '<span class="chav" style="width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * .45) + 'px;background:' + colorFor(c ? c.id : "x") + '" aria-hidden="true">' + initials(c ? c.name : "?") + '</span>'; }
@@ -148,7 +148,7 @@ function vcard(v, maps, opts){
     '<div style="min-width:0"><a class="vtitle" href="' + href + '">' + esc(v.title) + '</a><a class="vsub" href="' + ohref + '">' + esc(displayName(o)) + '</a>' +
     '<div class="vsmall">' + (v.like_count ? plural(v.like_count, "like") + ", " : "") + esc(timeAgo(v.created_at)) + '</div></div></div></article>';
 }
-const PROFILE_COLS = "id,username,display_name,avatar_path,kind,is_founder,is_model,user_id,manager_id,created_at";
+const PROFILE_COLS = "id,username,display_name,avatar_path,kind,is_founder,is_model,is_verified,user_id,manager_id,created_at";
 async function profilesByIds(ids){
   ids = [...new Set(ids.filter(Boolean))];
   if (!ids.length) return new Map();
