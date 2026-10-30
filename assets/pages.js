@@ -582,7 +582,11 @@ PAGES.watch = async () => {
   const autoplayOn = () => S.lsGet("stash:autoplay") !== "0";
   const cancelUpNext = () => { clearInterval(upTimer); upTimer = null; const o = $("#upnext"); if (o) o.remove(); };
   const goNext = () => { if (nextUrl) location.href = nextUrl + (nextUrl.includes("?") ? "&" : "?") + "autoplay=1"; };
-  const sources = [{ src: S.pub("videos", v.video_path), label: "" }].concat((Array.isArray(v.sources) ? v.sources : []).filter(x => x && x.path).map(x => ({ src: S.pub("videos", x.path), label: String(x.label || "").slice(0, 12) })));
+  const streamCustomerCode = String(S.cfg.STREAM_CUSTOMER_CODE || "").trim();
+  const sources = (v.stream_uid && streamCustomerCode ? [{ src: "https://customer-" + encodeURIComponent(streamCustomerCode) + ".cloudflarestream.com/" + encodeURIComponent(v.stream_uid) + "/manifest/video.m3u8", label: "Auto", hls: true }] : [])
+    .concat(v.video_path ? [{ src: S.pub("videos", v.video_path), label: "" }] : [])
+    .concat((Array.isArray(v.sources) ? v.sources : []).filter(x => x && x.path).map(x => ({ src: S.pub("videos", x.path), label: String(x.label || "").slice(0, 12) })));
+  if (v.stream_uid && !streamCustomerCode) toast("Cloudflare Stream playback isn't configured. Set STREAM_CUSTOMER_CODE in assets/config.js.");
   const startAt = clip ? clip.start_s : (parseFloat(param("t")) > 0 ? parseFloat(param("t")) : 0);
   const P = S.mountPlayer($("#player"), {
     sources, poster: v.thumb_path ? S.pub("images", v.thumb_path) : "", startAt,
@@ -671,8 +675,9 @@ PAGES.watch = async () => {
     $("#repBtn").addEventListener("click", () => openReport(v));
     const eb = $("#editBtn"); if (eb) eb.addEventListener("click", () => openEditVideo(v, { player, tags, onSaved: () => location.reload() }));
     const db = $("#delBtn"); if (db) db.addEventListener("click", () => confirmModal("Delete this video?", "“" + v.title + "” will be removed from The Stash for everyone, along with its comments, likes and clips. This can't be undone.", "Delete video", async () => {
+      if (mine && v.stream_uid) await S.deleteStreamVideo(v.stream_uid);
       must(await sb.from("videos").delete().eq("id", v.id));
-      if (mine){ sb.storage.from("videos").remove([v.video_path].concat((v.sources || []).map(x => x.path).filter(Boolean))).then(() => {}); if (v.thumb_path) sb.storage.from("images").remove([v.thumb_path]).then(() => {}); }
+      if (mine){ const paths = [v.video_path].concat((v.sources || []).map(x => x.path).filter(Boolean)).filter(Boolean); if (paths.length) sb.storage.from("videos").remove(paths).then(() => {}); if (v.thumb_path) sb.storage.from("images").remove([v.thumb_path]).then(() => {}); }
       location.href = profileUrl(owner);
     }));
   };
@@ -800,7 +805,7 @@ PAGES.upload = async () => {
     el.querySelectorAll("[data-src]").forEach(b => { const on = b.dataset.src === source; b.classList.toggle("cur", on); b.setAttribute("aria-selected", String(on)); });
     const pane = $("#srcPane");
     if (source === "device"){
-      pane.innerHTML = '<div class="drop" id="drop"><h2 style="font-size:19px">Drop a video here</h2><p>Any video file, up to ' + maxLabel + '. MP4 plays best for everyone.</p><label class="btn primary" style="cursor:pointer">Choose file<input type="file" id="vfile" accept="' + esc(S.VIDEO_ACCEPT) + '" class="sr"></label></div>';
+      pane.innerHTML = '<div class="drop" id="drop"><h2 style="font-size:19px">Drop a video here</h2><p>Video formats supported by Cloudflare Stream, up to ' + maxLabel + '. Videos are converted for browser-compatible playback.</p><label class="btn primary" style="cursor:pointer">Choose file<input type="file" id="vfile" accept="' + esc(S.VIDEO_ACCEPT) + '" class="sr"></label></div>';
       const fi = $("#vfile"), drop = $("#drop");
       fi.addEventListener("change", () => { if (fi.files[0]) pick(fi.files[0]); fi.value = ""; });
       drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
@@ -865,7 +870,7 @@ PAGES.upload = async () => {
     $("#vprev").src = prevUrl;
     const sizeTxt = f.size >= 1073741824 ? (f.size / 1073741824).toFixed(2) + " GB" : (f.size / 1048576).toFixed(1) + " MB";
     $("#vinfo").textContent = (o.imported ? "Imported from your X post, " : f.name + ", ") + sizeTxt;
-    grabber.canPlay().then(ok => { if (!ok && file === f){ $("#vinfo").innerHTML = esc($("#vinfo").textContent) + '<br><span class="warn">Heads up: this browser can\'t play this file\'s format, so many viewers won\'t be able to either. MP4 (H.264) plays everywhere.</span>'; } });
+    grabber.canPlay().then(ok => { if (!ok && file === f){ $("#vinfo").innerHTML = esc($("#vinfo").textContent) + '<br><span class="warn">This browser can\'t preview the original format. Cloudflare Stream will convert it for playback after upload.</span>'; } });
     const t = $("#vtitle");
     if (o.title && !t.value) t.value = o.title.slice(0, 100);
     if (!t.value) t.value = o.imported ? "" : f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100);
@@ -885,6 +890,7 @@ PAGES.upload = async () => {
     if (!title){ err.textContent = "Add a title."; $("#vtitle").focus(); return; }
     if (!$("#cs1").checked || !$("#cs2").checked || !$("#cs3").checked){ err.textContent = "Confirm all three statements to publish."; return; }
     const dlen = grabber ? await grabber.duration() : 0;
+    if (dlen > (+S.cfg.MAX_STREAM_DURATION_SECONDS || 3600)){ err.textContent = "This video is longer than the Cloudflare Stream upload limit."; return; }
     const parsedActions = readActions($("#vactions"), dlen || Infinity);
     if (parsedActions.error){ err.textContent = parsedActions.error; return; }
     const action_time = parsedActions.actions[0] ? parsedActions.actions[0].action_time : null;
@@ -893,15 +899,13 @@ PAGES.upload = async () => {
     const prog = $("#prog"), bar = prog.querySelector("i"), ptxt = $("#progText");
     const fail = m => { busy = false; err.textContent = m; btn.disabled = false; $("#reset").disabled = false; btn.textContent = "Publish"; prog.hidden = true; ptxt.textContent = ""; };
     const id = S.uuid(), folder = S.user.id;
-    let vpath;
+    let vpath = null, stream_uid = null;
     const duration = grabber ? await grabber.duration() : 0;
     if (imported){ vpath = imported.path; }
     else {
-      const ext = (String(file.name).toLowerCase().match(/\.([a-z0-9]{2,5})$/) || [])[1] || S.videoExt(ftype);
-      vpath = folder + "/" + id + "." + ext;
       prog.hidden = false; bar.style.width = "0%"; ptxt.textContent = "Uploading video… 0%";
       const t0 = Date.now();
-      try { await S.uploadResumable("videos", vpath, file, ftype, f => { const pc = Math.round(f * 100); bar.style.width = pc + "%"; const el2 = (Date.now() - t0) / 1000, left = f > 0.02 ? el2 / f - el2 : 0; ptxt.textContent = "Uploading video… " + pc + "%" + (left > 5 ? ", about " + (left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + " s") + " left" : ""); }); }
+      try { stream_uid = await S.uploadToStream(file, owner_id, duration, f => { const pc = Math.round(f * 100); bar.style.width = pc + "%"; const el2 = (Date.now() - t0) / 1000, left = f > 0.02 ? el2 / f - el2 : 0; ptxt.textContent = "Uploading video… " + pc + "%" + (left > 5 ? ", about " + (left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + " s") + " left" : ""); }); }
       catch(e){ fail(errText(e, "The video didn't upload. Try again.")); return; }
     }
     ptxt.textContent = "Finishing up…";
@@ -912,8 +916,15 @@ PAGES.upload = async () => {
       if (r.error) r = await sb.storage.from("images").upload(p, thumb.blob, { contentType: "image/jpeg", upsert: true });
       if (!r.error) tpath = p; else { thumbFail = true; console.warn("Thumbnail upload failed:", r.error); }
     }
-    const r = await sb.from("videos").insert({ owner_id, title, description: "", category_id: category_ids[0] || null, action_time, consent_attested_at: new Date().toISOString(), video_path: vpath, thumb_path: tpath, thumb_time: thumb && !thumb.custom ? Math.round(thumb.time * 100) / 100 : null, duration: Math.round(duration || 0) }).select("id").single();
-    if (r.error){ if (!imported) sb.storage.from("videos").remove([vpath]).then(() => {}); if (tpath) sb.storage.from("images").remove([tpath]).then(() => {}); fail(errText(r.error, "The video didn't publish. Try again.")); return; }
+    const r = await sb.from("videos").insert({ owner_id, title, description: "", category_id: category_ids[0] || null, action_time, consent_attested_at: new Date().toISOString(), video_path: vpath, stream_uid, thumb_path: tpath, thumb_time: thumb && !thumb.custom ? Math.round(thumb.time * 100) / 100 : null, duration: Math.round(duration || 0) }).select("id").single();
+    if (r.error){
+      let cleanupError = null;
+      if (stream_uid) try { await S.deleteStreamVideo(stream_uid); } catch(e){ cleanupError = e; }
+      if (imported) sb.storage.from("videos").remove([vpath]).then(() => {});
+      if (tpath) sb.storage.from("images").remove([tpath]).then(() => {});
+      fail(errText(r.error, "The video didn't publish. Try again.") + (cleanupError ? " The uploaded video could not be removed from Cloudflare; contact support." : ""));
+      return;
+    }
     if (imported) imported.published = true;
     const want = picker.ids();
     try {
@@ -922,10 +933,11 @@ PAGES.upload = async () => {
       await syncModelTags(r.data.id, want, []);
     } catch(e){
       const message = errText(e, "The video details didn't save. Try publishing again.");
+      if (stream_uid) try { await S.deleteStreamVideo(stream_uid); } catch(x){ fail(message + " The uploaded video could not be removed from Cloudflare; contact support."); return; }
       const cleanup = await sb.from("videos").delete().eq("id", r.data.id);
       if (cleanup.error) fail(message + " The partially published video could not be removed automatically; contact support.");
       else {
-        await sb.storage.from("videos").remove([vpath]);
+        if (imported) await sb.storage.from("videos").remove([vpath]);
         if (tpath) await sb.storage.from("images").remove([tpath]);
         imported = null;
         fail(message);

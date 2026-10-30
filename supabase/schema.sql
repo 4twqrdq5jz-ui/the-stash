@@ -60,7 +60,8 @@ create table if not exists public.videos (
   owner_id uuid not null references public.profiles(id) on delete cascade,
   title text not null check (char_length(title) between 1 and 100),
   description text not null default '' check (char_length(description) <= 5000),
-  video_path text not null,
+  video_path text,
+  stream_uid text unique,
   thumb_path text,
   thumb_time real,
   duration integer not null default 0,
@@ -69,6 +70,8 @@ create table if not exists public.videos (
 alter table public.videos add column if not exists category_id uuid references public.categories(id) on delete set null;
 alter table public.videos add column if not exists action_time real;
 alter table public.videos add column if not exists sources jsonb not null default '[]'::jsonb; -- extra qualities: [{"label":"720p","path":"..."}]
+alter table public.videos add column if not exists stream_uid text unique;
+alter table public.videos alter column video_path drop not null;
 -- The uploader's declaration that everyone in the video is 18+, verified, and consented.
 alter table public.videos add column if not exists consent_attested_at timestamptz;
 create index if not exists videos_created_idx on public.videos(created_at desc);
@@ -503,6 +506,8 @@ create policy "Add video actions" on public.video_actions for insert to authenti
 drop policy if exists "Remove video actions" on public.video_actions;
 create policy "Remove video actions" on public.video_actions for delete to authenticated
   using (exists (select 1 from public.videos v where v.id = video_id and public.manages(v.owner_id)) or public.is_founder());
+grant select on public.video_categories, public.video_actions to anon, authenticated;
+grant insert, delete on public.video_categories, public.video_actions to authenticated;
 
 drop policy if exists "Post comment" on public.comments;
 create policy "Post comment" on public.comments for insert to authenticated with check (public.is_me(author_id));

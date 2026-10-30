@@ -3,3 +3,6 @@
 # JWT check is turned off. Leaving it on blocks the browser's CORS preflight.
 [functions.import-x]
 verify_jwt = false
+
+[functions.stream-upload]
+verify_jwt = false

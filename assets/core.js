@@ -483,10 +483,59 @@ const VIDEO_EXT = { mp4:"video/mp4", m4v:"video/x-m4v", mov:"video/quicktime", q
 const VIDEO_ACCEPT = "video/*," + Object.keys(VIDEO_EXT).map(e => "." + e).join(",");
 function videoType(file){
   if (file && /^video\//.test(file.type)) return file.type;
-  const ext = String(file && file.name || "").toLowerCase().split(".").pop();
-  return VIDEO_EXT[ext] || null;
+  const name = String(file && file.name || "").toLowerCase(), ext = name.includes(".") ? name.split(".").pop() : "";
+  return VIDEO_EXT[ext] || (file && ext ? "application/octet-stream" : null);
 }
 const videoExt = type => (Object.entries(VIDEO_EXT).find(([, t]) => t === type) || ["mp4"])[0];
+function uploadToStream(file, ownerId, durationSeconds, onProgress){
+  if (!window.tus) return Promise.reject(new Error("The resumable upload client didn't load. Reload the page and try again."));
+  return new Promise(async (resolve, reject) => {
+    try {
+      const { data } = await sb.auth.getSession();
+      const token = data.session && data.session.access_token;
+      if (!token){ reject(new Error("Your session ended. Sign in again.")); return; }
+      let uid = "";
+      const upload = new window.tus.Upload(file, {
+        endpoint: CFG.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/stream-upload",
+        headers: { authorization: "Bearer " + token, apikey: CFG.SUPABASE_ANON_KEY },
+        metadata: {
+          filename: file.name || "video",
+          filetype: file.type || "application/octet-stream",
+          ownerId,
+          maxDurationSeconds: String(Math.max(1, Math.ceil(durationSeconds || CFG.MAX_STREAM_DURATION_SECONDS || 3600)))
+        },
+        chunkSize: 50 * 1024 * 1024,
+        retryDelays: [0, 3000, 5000, 10000, 20000],
+        onAfterResponse: (_request, response) => { uid = response.getHeader("stream-media-id") || uid; },
+        onError: error => reject(new Error(error && error.message || "The video upload failed. Check your connection and try again.")),
+        onProgress: (sent, total) => { if (onProgress && total) onProgress(sent / total); },
+        onSuccess: () => {
+          const match = String(upload.url || "").match(/\/stream\/([0-9a-f]{32})(?:\?|$)/i);
+          uid = uid || (match ? match[1] : "");
+          if (!uid) reject(new Error("Cloudflare finished the upload but didn't return its video ID. Contact support before retrying."));
+          else resolve(uid);
+        }
+      });
+      upload.start();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+async function deleteStreamVideo(uid){
+  const { data } = await sb.auth.getSession();
+  const token = data.session && data.session.access_token;
+  if (!token) throw new Error("Your session ended. Sign in again.");
+  const response = await fetch(CFG.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/stream-upload", {
+    method: "DELETE",
+    headers: { Authorization: "Bearer " + token, apikey: CFG.SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ uid })
+  });
+  if (!response.ok){
+    const body = await response.json().catch(() => null);
+    throw new Error(body && body.error && body.error.message || "Cloudflare couldn't delete this video. Try again.");
+  }
+}
 
 /* Opens a video file once so frames can be grabbed at any time. Works around iPhone/iPad
    Safari, which won't decode frames until the video has started playing. */
@@ -675,6 +724,7 @@ function mountPlayer(root, opts){
   const sources = (opts.sources || []).filter(s => s && s.src);
   let srcIdx = 0;
   const hasAction = typeof opts.actionTime === "number" && opts.actionTime > 0;
+  let hlsPlayer = null;
   root.classList.add("sp"); root.tabIndex = -1;
   root.innerHTML = '<video playsinline preload="metadata" crossorigin="anonymous"' + (opts.poster ? ' poster="' + esc(opts.poster) + '"' : "") + '></video>' +
     '<button class="sp-big" aria-label="Play">' + PI.play + '</button><div class="sp-spin" hidden><span class="spin"></span></div><div class="sp-flash" aria-hidden="true"></div>' +
@@ -697,10 +747,28 @@ function mountPlayer(root, opts){
   v.volume = isFinite(savedVol) ? Math.min(1, Math.max(0, savedVol)) : 1; v.muted = savedMute;
   let scrubbing = false, hideT = null, menuView = "main";
   const dur = () => isFinite(v.duration) ? v.duration : 0;
+  const stopHls = () => { if (hlsPlayer){ hlsPlayer.destroy(); hlsPlayer = null; } };
   const setSrc = (i, keep) => {
     const t = keep ? v.currentTime : (opts.startAt || 0), wasPlaying = keep && !v.paused, rate = v.playbackRate;
+    stopHls();
     srcIdx = i; q(".sp-err").hidden = true;
-    v.src = sources[i].src;
+    const source = sources[i];
+    if (source.hls && !v.canPlayType("application/vnd.apple.mpegurl") && (!window.Hls || !window.Hls.isSupported())){
+      q(".sp-err p").textContent = "This browser doesn't support HLS playback. Update your browser and try again.";
+      q(".sp-err").hidden = false; big.hidden = true; return;
+    }
+    if (source.hls && !v.canPlayType("application/vnd.apple.mpegurl") && window.Hls && window.Hls.isSupported()){
+      hlsPlayer = new window.Hls();
+      hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        q(".sp-err p").textContent = "This video is still processing or could not be streamed. Wait a moment and retry.";
+        q(".sp-err").hidden = false; big.hidden = true;
+      });
+      hlsPlayer.loadSource(source.src);
+      hlsPlayer.attachMedia(v);
+    } else {
+      v.src = source.src;
+    }
     v.addEventListener("loadedmetadata", () => { try { if (t) v.currentTime = t; } catch(e){} v.playbackRate = rate; if (wasPlaying){ const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } }, { once: true });
   };
   const qualityLabel = () => { const s = sources[srcIdx]; if (!s) return "Auto"; if (s.label) return s.label; const h = v.videoHeight; return h ? h + "p" : "Original"; };
@@ -800,7 +868,10 @@ function mountPlayer(root, opts){
   v.addEventListener("error", () => {
     if (!v.error) return;
     if (srcIdx < sources.length - 1 && v.error.code === 4){ setSrc(srcIdx + 1, true); return; }
-    q(".sp-err p").textContent = v.error.code === 4 ? "Your browser can't play this video's format. Try another browser, or ask the uploader to post an MP4." : "This video couldn't play. Check your connection and try again.";
+    q(".sp-err p").textContent = sources[srcIdx].hls
+      ? "This video is still processing or could not be streamed. Wait a moment and retry."
+      : v.error.code === 4 ? "Your browser can't play this video's format. Try another browser, or ask the uploader to post an MP4."
+      : "This video couldn't play. Check your connection and try again.";
     q(".sp-err").hidden = false; big.hidden = true;
   });
   q(".sp-err button").addEventListener("click", () => { q(".sp-err").hidden = true; setSrc(srcIdx, true); const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); });
@@ -858,6 +929,6 @@ App.start = async function(render){
 Object.assign(App, { $, esc, colorFor, initials, timeAgo, fmtDur, fmtCount, plural, safeUrl, safeNext, param, pub, USER_RE, must, errText, toast,
   openModal, closeModal, confirmModal, avatar, chAvatar, thumbInner, vcard, hydrate, profilesByIds, PROFILE_COLS, videosByIds, watchUrl, profileUrl,
   badges, displayName, BANNERS, presetUrl, bannerHTML, frameGrabber, anniversary, ordinal, mountPlayer, importFromX, xIdentity, linkX, lsGet, lsSet,
-  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, uuid, videoType, videoExt, VIDEO_ACCEPT, frameFromVideo, clock });
+  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, uploadToStream, deleteStreamVideo, uuid, videoType, videoExt, VIDEO_ACCEPT, frameFromVideo, clock });
 window.Stash = App;
 })();
