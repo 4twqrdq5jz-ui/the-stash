@@ -25,8 +25,8 @@ window.STASH_CONFIG = {
   // Maximum duration reserved when a video cannot be measured by the upload browser.
   // This must not exceed MAX_STREAM_DURATION_SECONDS on the stream-upload function.
   MAX_STREAM_DURATION_SECONDS: 3600,
-  // The code in your Cloudflare Stream HLS URL, e.g. customer-<CODE>.cloudflarestream.com.
-  STREAM_CUSTOMER_CODE: "customer-dy0ubenn9wvkbxll.cloudflarestream.com",
+  // The code only from your Cloudflare Stream HLS URL (without customer- or the domain).
+  STREAM_CUSTOMER_CODE: "dy0ubenn9wvkbxll",
 
   // Largest video the "From X" importer will bring in, in MB. Keep it matching the
   // MAX_X_IMPORT_MB secret on the import-x function (512 if you haven't set one).
