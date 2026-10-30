@@ -482,45 +482,62 @@ function cropImage(file, W, H){
 const VIDEO_EXT = { mp4:"video/mp4", m4v:"video/x-m4v", mov:"video/quicktime", qt:"video/quicktime", webm:"video/webm", mkv:"video/x-matroska", avi:"video/x-msvideo", wmv:"video/x-ms-wmv", flv:"video/x-flv", "3gp":"video/3gpp", "3g2":"video/3gpp2", mpg:"video/mpeg", mpeg:"video/mpeg", m2ts:"video/mp2t", mts:"video/mp2t", ts:"video/mp2t", ogv:"video/ogg", vob:"video/dvd", f4v:"video/x-f4v", asf:"video/x-ms-asf", hevc:"video/hevc" };
 const VIDEO_ACCEPT = "video/*," + Object.keys(VIDEO_EXT).map(e => "." + e).join(",");
 function videoType(file){
-  if (file && /^video\//.test(file.type)) return file.type;
   const name = String(file && file.name || "").toLowerCase(), ext = name.includes(".") ? name.split(".").pop() : "";
-  return VIDEO_EXT[ext] || (file && ext ? "application/octet-stream" : null);
+  return VIDEO_EXT[ext] || (file && /^video\//.test(file.type) ? file.type : null);
 }
 const videoExt = type => (Object.entries(VIDEO_EXT).find(([, t]) => t === type) || ["mp4"])[0];
-function uploadToStream(file, ownerId, durationSeconds, onProgress){
-  if (!window.tus) return Promise.reject(new Error("The resumable upload client didn't load. Reload the page and try again."));
-  return new Promise(async (resolve, reject) => {
-    try {
-      const { data } = await sb.auth.getSession();
-      const token = data.session && data.session.access_token;
-      if (!token){ reject(new Error("Your session ended. Sign in again.")); return; }
-      let uid = "";
-      const upload = new window.tus.Upload(file, {
-        endpoint: CFG.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/stream-upload",
-        headers: { authorization: "Bearer " + token, apikey: CFG.SUPABASE_ANON_KEY },
-        metadata: {
-          filename: file.name || "video",
-          filetype: file.type || "application/octet-stream",
-          ownerId,
-          maxDurationSeconds: String(Math.max(1, Math.ceil(durationSeconds || CFG.MAX_STREAM_DURATION_SECONDS || 3600)))
-        },
-        chunkSize: 50 * 1024 * 1024,
-        retryDelays: [0, 3000, 5000, 10000, 20000],
-        onAfterResponse: (_request, response) => { uid = response.getHeader("stream-media-id") || uid; },
-        onError: error => reject(new Error(error && error.message || "The video upload failed. Check your connection and try again.")),
-        onProgress: (sent, total) => { if (onProgress && total) onProgress(sent / total); },
-        onSuccess: () => {
-          const match = String(upload.url || "").match(/\/stream\/([0-9a-f]{32})(?:\?|$)/i);
-          uid = uid || (match ? match[1] : "");
-          if (!uid) reject(new Error("Cloudflare finished the upload but didn't return its video ID. Contact support before retrying."));
-          else resolve(uid);
-        }
-      });
-      upload.start();
-    } catch (error) {
-      reject(error);
-    }
-  });
+async function convertVideoToMp4(file, onProgress){
+  if (!window.FFmpegWASM) throw new Error("The video converter didn't load. Check your connection and reload the page.");
+  const { FFmpeg } = window.FFmpegWASM;
+  const ffmpeg = new FFmpeg();
+  let log = "";
+  let classWorkerURL = "", coreURL = "", wasmURL = "";
+  ffmpeg.on("log", ({ message }) => { log = (log + "\n" + message).slice(-2000); });
+  ffmpeg.on("progress", ({ progress }) => { if (onProgress && Number.isFinite(progress)) onProgress(Math.max(0, Math.min(1, progress))); });
+  const extension = (String(file.name || "").split(".").pop() || "input").toLowerCase().replace(/[^a-z0-9]/g, "") || "input";
+  const inputName = "input." + extension;
+  try {
+    const coreUrl = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
+    const workerBase = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm";
+    const workerResponse = await fetch(workerBase + "/worker.js");
+    if (!workerResponse.ok) throw new Error("The video converter worker couldn't be downloaded.");
+    // Workers must be same-origin, so blob the module worker and point its imports at the CDN.
+    const workerSource = (await workerResponse.text()).replace(/from ["']\.\/(const|errors)\.js["']/g, (_match, name) => `from "${workerBase}/${name}.js"`);
+    classWorkerURL = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
+    const makeBlobURL = async (url, type) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("The video converter couldn't be downloaded.");
+      return URL.createObjectURL(new Blob([await response.arrayBuffer()], { type }));
+    };
+    await ffmpeg.load({
+      classWorkerURL,
+      coreURL: coreURL = await makeBlobURL(coreUrl + "/ffmpeg-core.js", "text/javascript"),
+      wasmURL: wasmURL = await makeBlobURL(coreUrl + "/ffmpeg-core.wasm", "application/wasm")
+    });
+    URL.revokeObjectURL(coreURL); coreURL = "";
+    URL.revokeObjectURL(wasmURL); wasmURL = "";
+    await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
+    await ffmpeg.exec([
+      "-i", inputName, "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264",
+      "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+      "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:a", "aac", "-b:a", "128k",
+      "-movflags", "+faststart", "output.mp4"
+    ]);
+    const data = await ffmpeg.readFile("output.mp4");
+    if (typeof data === "string" || !data.length) throw new Error("The converted MP4 file was empty.");
+    const baseName = String(file.name || "video").replace(/\.[^.]+$/, "") || "video";
+    return new File([data], baseName + ".mp4", { type: "video/mp4" });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(/memory|allocation|out of bounds/i.test(detail + log)
+      ? "This video is too large to convert in this browser. Try a smaller file or convert it to MP4 (H.264/AAC) before uploading."
+      : "This video couldn't be converted to MP4 in your browser. Try another file or convert it to MP4 (H.264/AAC) first." + (detail ? " " + detail : ""));
+  } finally {
+    ffmpeg.terminate();
+    if (classWorkerURL) URL.revokeObjectURL(classWorkerURL);
+    if (coreURL) URL.revokeObjectURL(coreURL);
+    if (wasmURL) URL.revokeObjectURL(wasmURL);
+  }
 }
 async function deleteStreamVideo(uid){
   const { data } = await sb.auth.getSession();
@@ -688,7 +705,10 @@ function uploadResumable(bucket, path, file, type, onProgress){
       uploadDataDuringCreation: true, removeFingerprintOnSuccess: true,
       metadata: { bucketName: bucket, objectName: path, contentType: type, cacheControl: "3600" },
       chunkSize: 6 * 1024 * 1024,
-      onError: e => { const m = String(e && e.message || ""); rej(new Error(/413|too large|maximum allowed size/i.test(m) ? "That file is larger than the upload limit. Raise the limit in Supabase (Settings > Storage) or pick a smaller file." : /401|403|jwt|unauthor/i.test(m) ? "Upload permission was refused. Sign out and back in, then try again." : "The upload was interrupted. Check your connection and try again.")); },
+      onError: e => {
+        const m = String(e && e.message || "");
+        rej(new Error(/413|too large|maximum allowed size/i.test(m) ? "That file is larger than the upload limit. Raise the limit in Supabase (Settings > Storage) or pick a smaller file." : /401|403|jwt|unauthor/i.test(m) ? "Upload permission was refused. Sign out and back in, then try again." : m || "The upload was interrupted. Check your connection and try again."));
+      },
       onProgress: (sent, total) => { if (onProgress && total) onProgress(sent / total); },
       onSuccess: () => res(path)
     });
@@ -870,7 +890,7 @@ function mountPlayer(root, opts){
     if (srcIdx < sources.length - 1 && v.error.code === 4){ setSrc(srcIdx + 1, true); return; }
     q(".sp-err p").textContent = sources[srcIdx].hls
       ? "This video is still processing or could not be streamed. Wait a moment and retry."
-      : v.error.code === 4 ? "Your browser can't play this video's format. Try another browser, or ask the uploader to post an MP4."
+      : v.error.code === 4 ? "Your browser can't play this video's format. Ask the uploader for an MP4 using H.264 video and AAC audio."
       : "This video couldn't play. Check your connection and try again.";
     q(".sp-err").hidden = false; big.hidden = true;
   });
@@ -929,6 +949,6 @@ App.start = async function(render){
 Object.assign(App, { $, esc, colorFor, initials, timeAgo, fmtDur, fmtCount, plural, safeUrl, safeNext, param, pub, USER_RE, must, errText, toast,
   openModal, closeModal, confirmModal, avatar, chAvatar, thumbInner, vcard, hydrate, profilesByIds, PROFILE_COLS, videosByIds, watchUrl, profileUrl,
   badges, displayName, BANNERS, presetUrl, bannerHTML, frameGrabber, anniversary, ordinal, mountPlayer, importFromX, xIdentity, linkX, lsGet, lsSet,
-  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, uploadToStream, deleteStreamVideo, uuid, videoType, videoExt, VIDEO_ACCEPT, frameFromVideo, clock });
+  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, convertVideoToMp4, deleteStreamVideo, uuid, videoType, videoExt, VIDEO_ACCEPT, frameFromVideo, clock });
 window.Stash = App;
 })();

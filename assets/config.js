@@ -20,12 +20,9 @@ window.STASH_CONFIG = {
   // Where people email for help. Shown in the site footer.
   SUPPORT_EMAIL: "southofsomewhere@icloud.com",
 
-  // Largest video someone can upload to Cloudflare Stream, in MB.
+  // Largest video someone can upload to Supabase Storage, in MB.
   MAX_VIDEO_MB: 1024,
-  // Maximum duration reserved when a video cannot be measured by the upload browser.
-  // This must not exceed MAX_STREAM_DURATION_SECONDS on the stream-upload function.
-  MAX_STREAM_DURATION_SECONDS: 3600,
-  // The code only from your Cloudflare Stream HLS URL (without customer- or the domain).
+  // Used only to play videos uploaded to Cloudflare Stream before switching back to Storage.
   STREAM_CUSTOMER_CODE: "dy0ubenn9wvkbxll",
 
   // Largest video the "From X" importer will bring in, in MB. Keep it matching the

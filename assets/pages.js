@@ -797,7 +797,7 @@ PAGES.upload = async () => {
     '<div class="progress" id="prog" hidden><i></i></div><div class="vsmall" id="progText"></div><div class="err" id="uperr" role="alert"></div>' +
     '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="reset">Choose another video</button><button class="btn primary" id="pub">Publish</button></div></div></div>';
   if (want && targets.some(t => t.id === want)) $("#vto").value = want;
-  let file = null, ftype = null, prevUrl = null, busy = false, grabber = null, thumb = null, thumbUrl = null, gen = 0, imported = null;
+  let file = null, prevUrl = null, busy = false, grabber = null, thumb = null, thumbUrl = null, gen = 0, imported = null;
   const picker = modelPicker($("#vmodels"), S.profile.is_model ? [S.profile] : []);
   wireActionEditor($("#vactions"), $("#vprev"));
 
@@ -805,7 +805,7 @@ PAGES.upload = async () => {
     el.querySelectorAll("[data-src]").forEach(b => { const on = b.dataset.src === source; b.classList.toggle("cur", on); b.setAttribute("aria-selected", String(on)); });
     const pane = $("#srcPane");
     if (source === "device"){
-      pane.innerHTML = '<div class="drop" id="drop"><h2 style="font-size:19px">Drop a video here</h2><p>Video formats supported by Cloudflare Stream, up to ' + maxLabel + '. Videos are converted for browser-compatible playback.</p><label class="btn primary" style="cursor:pointer">Choose file<input type="file" id="vfile" accept="' + esc(S.VIDEO_ACCEPT) + '" class="sr"></label></div>';
+      pane.innerHTML = '<div class="drop" id="drop"><h2 style="font-size:19px">Drop a video here</h2><p>Video files up to ' + maxLabel + '. Files are converted in your browser to MP4 (H.264 video and AAC audio) before upload. Conversion can be slow and use a lot of memory, especially for large videos.</p><label class="btn primary" style="cursor:pointer">Choose file<input type="file" id="vfile" accept="' + esc(S.VIDEO_ACCEPT) + '" class="sr"></label></div>';
       const fi = $("#vfile"), drop = $("#drop");
       fi.addEventListener("change", () => { if (fi.files[0]) pick(fi.files[0]); fi.value = ""; });
       drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
@@ -860,9 +860,8 @@ PAGES.upload = async () => {
   function pick(f, o){
     o = o || {};
     const type = S.videoType(f);
-    if (!type){ toast("That doesn't look like a video file."); return; }
+    if (!type){ toast("Use an MP4, M4V or WebM file. MP4 with H.264 video and AAC audio works in the most browsers."); return; }
     if (f.size > MAXMB * 1048576){ toast("That video is " + (f.size / 1048576).toFixed(0) + " MB. The limit is " + maxLabel + "."); return; }
-    ftype = type;
     if (!o.imported) dropImported();
     if (prevUrl) URL.revokeObjectURL(prevUrl); if (grabber) grabber.close();
     file = f; prevUrl = URL.createObjectURL(f); thumb = null; grabber = S.frameGrabber(f);
@@ -870,7 +869,13 @@ PAGES.upload = async () => {
     $("#vprev").src = prevUrl;
     const sizeTxt = f.size >= 1073741824 ? (f.size / 1073741824).toFixed(2) + " GB" : (f.size / 1048576).toFixed(1) + " MB";
     $("#vinfo").textContent = (o.imported ? "Imported from your X post, " : f.name + ", ") + sizeTxt;
-    grabber.canPlay().then(ok => { if (!ok && file === f){ $("#vinfo").innerHTML = esc($("#vinfo").textContent) + '<br><span class="warn">This browser can\'t preview the original format. Cloudflare Stream will convert it for playback after upload.</span>'; } });
+    grabber.canPlay().then(ok => {
+      if (file !== f) return;
+      const note = ok
+        ? "This video will be converted to MP4 (H.264/AAC) before upload."
+        : "This browser can't preview the original, but it will still try to convert it to MP4 before upload.";
+      $("#vinfo").innerHTML = esc($("#vinfo").textContent) + '<br><span class="warn">' + esc(note) + '</span>';
+    });
     const t = $("#vtitle");
     if (o.title && !t.value) t.value = o.title.slice(0, 100);
     if (!t.value) t.value = o.imported ? "" : f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100);
@@ -889,24 +894,39 @@ PAGES.upload = async () => {
     if (!file){ err.textContent = "Choose a video first."; return; }
     if (!title){ err.textContent = "Add a title."; $("#vtitle").focus(); return; }
     if (!$("#cs1").checked || !$("#cs2").checked || !$("#cs3").checked){ err.textContent = "Confirm all three statements to publish."; return; }
-    const dlen = grabber ? await grabber.duration() : 0;
-    if (dlen > (+S.cfg.MAX_STREAM_DURATION_SECONDS || 3600)){ err.textContent = "This video is longer than the Cloudflare Stream upload limit."; return; }
-    const parsedActions = readActions($("#vactions"), dlen || Infinity);
+    let dlen = grabber ? await grabber.duration() : 0;
+    let parsedActions = readActions($("#vactions"), dlen || Infinity);
     if (parsedActions.error){ err.textContent = parsedActions.error; return; }
-    const action_time = parsedActions.actions[0] ? parsedActions.actions[0].action_time : null;
+    let action_time = parsedActions.actions[0] ? parsedActions.actions[0].action_time : null;
     if (!S.manages(owner_id)){ err.textContent = "Pick where to post this video."; return; }
     busy = true; err.textContent = ""; btn.disabled = true; $("#reset").disabled = true; btn.innerHTML = '<span class="spin"></span>Publishing…';
     const prog = $("#prog"), bar = prog.querySelector("i"), ptxt = $("#progText");
     const fail = m => { busy = false; err.textContent = m; btn.disabled = false; $("#reset").disabled = false; btn.textContent = "Publish"; prog.hidden = true; ptxt.textContent = ""; };
     const id = S.uuid(), folder = S.user.id;
-    let vpath = null, stream_uid = null;
-    const duration = grabber ? await grabber.duration() : 0;
-    if (imported){ vpath = imported.path; }
-    else {
-      prog.hidden = false; bar.style.width = "0%"; ptxt.textContent = "Uploading video… 0%";
-      const t0 = Date.now();
-      try { stream_uid = await S.uploadToStream(file, owner_id, duration, f => { const pc = Math.round(f * 100); bar.style.width = pc + "%"; const el2 = (Date.now() - t0) / 1000, left = f > 0.02 ? el2 / f - el2 : 0; ptxt.textContent = "Uploading video… " + pc + "%" + (left > 5 ? ", about " + (left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + " s") + " left" : ""); }); }
-      catch(e){ fail(errText(e, "The video didn't upload. Try again.")); return; }
+    let vpath = null, duration = dlen, uploadFile;
+    prog.hidden = false; bar.style.width = "0%"; ptxt.textContent = "Preparing video converter…";
+    try {
+      uploadFile = await S.convertVideoToMp4(file, f => {
+        const pc = Math.round(f * 55); bar.style.width = pc + "%"; ptxt.textContent = "Converting to MP4… " + pc + "%";
+      });
+    } catch(e){ fail(errText(e, "This video couldn't be converted to MP4.")); return; }
+    if (uploadFile.size > MAXMB * 1048576){ fail("The converted MP4 is larger than the " + maxLabel + " upload limit. Try a shorter or smaller source video."); return; }
+    if (!duration){
+      const convertedProbe = S.frameGrabber(uploadFile);
+      duration = await convertedProbe.duration();
+      convertedProbe.close();
+    }
+    parsedActions = readActions($("#vactions"), duration || Infinity);
+    if (parsedActions.error){ fail(parsedActions.error); return; }
+    action_time = parsedActions.actions[0] ? parsedActions.actions[0].action_time : null;
+    vpath = folder + "/" + id + ".mp4";
+    ptxt.textContent = "Uploading converted MP4… 55%";
+    const t0 = Date.now();
+    try { await S.uploadResumable("videos", vpath, uploadFile, "video/mp4", f => { const pc = 55 + Math.round(f * 45); bar.style.width = pc + "%"; const el2 = (Date.now() - t0) / 1000, left = f > 0.02 ? el2 / f - el2 : 0; ptxt.textContent = "Uploading converted MP4… " + pc + "%" + (left > 5 ? ", about " + (left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + " s") + " left" : ""); }); }
+    catch(e){
+      const removed = await sb.storage.from("videos").remove([vpath]);
+      const cleanupNote = removed.error ? " The incomplete upload could not be removed from Storage; contact support." : "";
+      fail(errText(e, "The video didn't upload. Try again.") + cleanupNote); return;
     }
     ptxt.textContent = "Finishing up…";
     let tpath = null, thumbFail = false;
@@ -916,16 +936,19 @@ PAGES.upload = async () => {
       if (r.error) r = await sb.storage.from("images").upload(p, thumb.blob, { contentType: "image/jpeg", upsert: true });
       if (!r.error) tpath = p; else { thumbFail = true; console.warn("Thumbnail upload failed:", r.error); }
     }
-    const r = await sb.from("videos").insert({ owner_id, title, description: "", category_id: category_ids[0] || null, action_time, consent_attested_at: new Date().toISOString(), video_path: vpath, stream_uid, thumb_path: tpath, thumb_time: thumb && !thumb.custom ? Math.round(thumb.time * 100) / 100 : null, duration: Math.round(duration || 0) }).select("id").single();
+    const r = await sb.from("videos").insert({ owner_id, title, description: "", category_id: category_ids[0] || null, action_time, consent_attested_at: new Date().toISOString(), video_path: vpath, thumb_path: tpath, thumb_time: thumb && !thumb.custom ? Math.round(thumb.time * 100) / 100 : null, duration: Math.round(duration || 0) }).select("id").single();
     if (r.error){
       let cleanupError = null;
-      if (stream_uid) try { await S.deleteStreamVideo(stream_uid); } catch(e){ cleanupError = e; }
-      if (imported) sb.storage.from("videos").remove([vpath]).then(() => {});
-      if (tpath) sb.storage.from("images").remove([tpath]).then(() => {});
-      fail(errText(r.error, "The video didn't publish. Try again.") + (cleanupError ? " The uploaded video could not be removed from Cloudflare; contact support." : ""));
+      if (vpath){ const removed = await sb.storage.from("videos").remove([vpath]); cleanupError = removed.error; }
+      if (tpath) await sb.storage.from("images").remove([tpath]);
+      fail(errText(r.error, "The video didn't publish. Try again.") + (cleanupError ? " The uploaded video could not be removed from Storage; contact support." : ""));
       return;
     }
-    if (imported) imported.published = true;
+    if (imported){
+      const removed = await sb.storage.from("videos").remove([imported.path]);
+      if (removed.error) console.warn("Imported source cleanup failed:", removed.error);
+      imported.published = true;
+    }
     const want = picker.ids();
     try {
       await syncVideoCategories(r.data.id, category_ids, []);
@@ -933,11 +956,10 @@ PAGES.upload = async () => {
       await syncModelTags(r.data.id, want, []);
     } catch(e){
       const message = errText(e, "The video details didn't save. Try publishing again.");
-      if (stream_uid) try { await S.deleteStreamVideo(stream_uid); } catch(x){ fail(message + " The uploaded video could not be removed from Cloudflare; contact support."); return; }
       const cleanup = await sb.from("videos").delete().eq("id", r.data.id);
       if (cleanup.error) fail(message + " The partially published video could not be removed automatically; contact support.");
       else {
-        if (imported) await sb.storage.from("videos").remove([vpath]);
+        if (vpath) await sb.storage.from("videos").remove([vpath]);
         if (tpath) await sb.storage.from("images").remove([tpath]);
         imported = null;
         fail(message);

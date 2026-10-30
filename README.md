@@ -24,15 +24,14 @@ Sign-in options are email and password (with a weak/fair/strong meter and confir
 | `watch/` | The video player page (`/watch/?v=…`) |
 | `upload/` | The upload page |
 | `profile/` (people and channels), `library/`, `subscriptions/`, `playlist/`, `search/` | The other pages |
-| `assets/config.js` | Site configuration: Supabase keys, Cloudflare playback code, upload limits and support details |
+| `assets/config.js` | Site configuration: Supabase keys, upload limits, support details and optional legacy Stream playback code |
 | `assets/login-bg.svg` | The login page background. Swap in your own image (see below) |
 | `supabase/schema.sql` | Database tables, security rules, storage buckets and support tools |
 | `supabase/migrations/` | Additive updates for existing databases; apply migrations in filename order |
 | `supabase/functions/import-x/` | The server function that imports videos from X posts |
 | `supabase/reset.sql` | Only if you ran an older version: wipes the old tables so the new schema can install |
 
-The site is plain HTML, CSS and JavaScript with no build step. Supabase (free tier is fine to start) stores the accounts, data and videos.
-New device uploads use Cloudflare Stream to transcode video for HLS playback in Safari and browsers without native HLS support. This requires an active Cloudflare Stream account.
+The site is plain HTML, CSS and JavaScript with no build step. Supabase stores the accounts, data and uploaded video files.
 
 ---
 
@@ -73,26 +72,11 @@ Until Google or X is switched on, those buttons show "sign-in isn't switched on 
 
 Google and X both publish official sign-in button artwork and branding rules. The buttons here use plain lettered marks, so you can swap in their official assets if you'd like.
 
-## 3. Set up Cloudflare Stream video playback
+## 3. Set up video storage and playback
 
-New device uploads are sent directly to Cloudflare Stream using resumable uploads. Stream transcodes them to HLS for Safari and other browsers, so originals don't need to be playable by the uploader's browser. Existing Supabase-hosted videos and X imports continue using their current files.
+New device uploads are converted in the browser to MP4 with H.264 video and AAC audio, then stored in the Supabase `videos` bucket. This conversion uses ffmpeg.wasm; its roughly 32 MB conversion engine is downloaded from jsDelivr when converting. Conversion can be slow and memory-intensive, especially for large videos or on phones. Videos previously uploaded to Cloudflare Stream can still play using the legacy playback configuration.
 
-1. Create/activate a Cloudflare Stream account. Make an API token with **Stream: Edit** (Stream Write) permission and copy the account ID from the Cloudflare dashboard. In the Stream dashboard, copy the HLS manifest URL for any video and take the code from `customer-<CODE>.cloudflarestream.com`. If the account has no videos yet, upload a temporary test video first.
-2. Install and link the [Supabase CLI](https://supabase.com/docs/guides/cli) if you have not already:
-   ```
-   supabase login
-   supabase link --project-ref YOUR_PROJECT_ID
-   ```
-3. Store the Cloudflare credentials and matching upload limits as Supabase function secrets, then deploy the upload function:
-   ```
-   supabase secrets set CLOUDFLARE_ACCOUNT_ID=YOUR_ACCOUNT_ID CLOUDFLARE_STREAM_TOKEN=YOUR_API_TOKEN MAX_VIDEO_MB=1024 MAX_STREAM_DURATION_SECONDS=3600 SITE_URL=https://thestash.gay
-   supabase functions deploy stream-upload --no-verify-jwt
-   ```
-   `MAX_VIDEO_MB` and `MAX_STREAM_DURATION_SECONDS` must match the limits in `assets/config.js`. The API token stays in Supabase and is never sent to browsers. The function validates the signed-in uploader before creating a one-time TUS upload.
-4. Set `STREAM_CUSTOMER_CODE` in `assets/config.js` to the code copied in step 1 (the code only, without `customer-` or `.cloudflarestream.com`).
-5. For an existing database, run the additive migration `supabase/migrations/20261030_cloudflare_stream.sql` in the Supabase SQL Editor (along with any other unapplied migration files, in filename order). Do not run `reset.sql` to apply this update.
-
-New video uploads are playable as soon as Cloudflare finishes processing them. Very large uploads and longer videos use Cloudflare Stream storage and duration quotas/billing.
+The schema creates the `videos` bucket with a 1 GB file limit. Check **Storage → Buckets → videos → Settings** in Supabase and make sure its file-size limit is large enough for `MAX_VIDEO_MB` in `assets/config.js`. Your Supabase plan's global upload-size limit must also permit files that large; if it does not, reduce `MAX_VIDEO_MB`. New uploads do not need a Cloudflare API key or function.
 
 ## 4. Turn on importing from X (optional)
 
@@ -166,9 +150,9 @@ These aren't legal advice, but they're the things that most often shut adult sit
 ## Customizing
 
 - **Login background:** put your image at `assets/login-bg.jpg`. Then in `assets/app.css`, change `login-bg.svg` to `login-bg.jpg` in the `.login-bg` rule. Use a wide image, at least 1920 px across. A dark overlay is added automatically so the sign-in card stays readable.
-- **Video size and duration limits:** uploads are limited by `MAX_VIDEO_MB` and `MAX_STREAM_DURATION_SECONDS` in `assets/config.js` and the matching Supabase function secrets. Cloudflare Stream account quotas and billing apply.
-- **Video types:** uploads are transcoded by Cloudflare Stream and delivered through HLS. Safari uses native HLS; other browsers use the hls.js player. Cloudflare's supported input formats still apply.
-- **Quality options:** Cloudflare Stream provides adaptive HLS renditions for new uploads. The player's settings menu lists manually configured additional sources for legacy videos.
+- **Video size:** uploads are limited by `MAX_VIDEO_MB` in `assets/config.js` and the file-size limits in Supabase Storage.
+- **Video compatibility:** uploaded files are converted to MP4 with H.264 video and AAC audio in the browser before storage. Browser memory and the ffmpeg.wasm-supported input formats limit which large or unusual files can be converted.
+- **Quality options:** the player's settings menu lists manually configured additional sources for videos that have them.
 - **Adult mode** is on (`ADULT_CONTENT: true` in `assets/config.js`). It adds:
   - an 18+ entry screen
   - an 18+ box on sign-up
@@ -191,7 +175,7 @@ These aren't legal advice, but they're the things that most often shut adult sit
   The speed menu goes from 0.25× to 2×, and volume and mute are remembered between visits.
 - **Recommended and autoplay:** the column next to the player favors the same creator, accounts you follow or subscribe to, similar titles, popular videos and newer uploads. With Autoplay on, the next recommendation starts after a 5-second countdown, which you can cancel. Playlists always play in order.
 - **Anniversaries:** profiles show when someone joined. On the anniversary of that date, the profile shows a celebration banner and a "🎂 1 year" badge next to their name everywhere. The person also gets a dismissible note on the home page. Achievements unlock at 1, 2 and 5 years.
-- **Video formats:** new device uploads are transcoded by Cloudflare Stream for cross-browser HLS playback. Cloudflare's supported input formats apply; legacy Supabase files remain dependent on the viewer's browser codecs.
+- **Video formats:** device uploads accept common video formats and are converted to MP4 (H.264/AAC) in the browser. Large files may exceed available browser memory.
 
 ## How data is kept safe
 
