@@ -27,80 +27,87 @@
   new MutationObserver(update).observe(root, { attributes:true, attributeFilter:["data-layout"] });
 
   /* ---------- tab bar lens ----------
-     At rest a tinted pill sits under the current tab. On touch it pops into a clear lens that is wider and taller
-     than the bar, follows the finger on a spring, stretches with speed, and magnifies + recolors whatever icons it covers
-     (a recolored copy of the tabs is clipped to the lens; the originals get a matching hole). */
+     Layers inside the bar, bottom to top: resting pill, the real tabs (one evenodd clip punches the lens out of them),
+     a blue copy of the tabs magnified and clipped to the lens, then the lens rim/gloss.
+     Per frame only transforms, two clip-paths and the lens size change — no layout of the tabs, no per-tab work. */
   function initTabbar(nav){
-    const PAD = 4;
-    let lens, rim, tint, tabs = [], cur = -1, L = null;
-    // spring state: x = lens centre, p = 0 resting pill .. 1 popped lens
+    let lens, rim, base, tint, tabs = [], cur = -1, L = null, building = false;
+    // springs: x = lens centre (px), p = 0 resting pill .. 1 popped lens
     const s = { x:0, vx:0, tx:0, p:0, vp:0, tp:0 };
-    let raf = 0, last = 0, drag = null, fromPointer = false, navTimer = 0;
+    let raf = 0, last = 0, drag = null, fromPointer = false, navTimer = 0, sinkTimer = 0;
 
     function build(){
-      tabs = [...nav.querySelectorAll(":scope > a")];
-      if (!tabs.length) return false;
-      if (!lens || !lens.isConnected){
-        lens = document.createElement("span"); lens.className = "lg-lens"; lens.setAttribute("aria-hidden", "true");
-        rim = document.createElement("span"); rim.className = "lg-rim"; rim.setAttribute("aria-hidden", "true");
-        tint = document.createElement("div"); tint.className = "lg-tint"; tint.setAttribute("aria-hidden", "true");
-        nav.prepend(lens); nav.append(tint, rim);
-      }
-      nav.classList.add("lg-live");
+      const loose = [...nav.querySelectorAll(":scope > a")];
+      if (!loose.length && base && base.isConnected) { tabs = [...base.children]; return tabs.length > 0; }
+      if (!loose.length) return false;
+      building = true;
+      lens = document.createElement("span"); lens.className = "lg-lens";
+      base = document.createElement("div"); base.className = "lg-base";
+      tint = document.createElement("div"); tint.className = "lg-tint";
+      rim = document.createElement("span"); rim.className = "lg-rim";
+      [lens, tint, rim].forEach(el => el.setAttribute("aria-hidden", "true"));
+      base.append(...loose);
+      nav.append(lens, base, tint, rim);
+      tabs = loose;
       tint.innerHTML = tabs.map(a => '<span class="lg-ti">' + a.innerHTML + "</span>").join("");
-      cur = tabs.findIndex(a => a.classList.contains("cur"));
+      nav.classList.add("lg-live");
+      queueMicrotask(() => { building = false; });
       return true;
     }
     function measure(){
-      L = { w:nav.clientWidth, h:nav.clientHeight, c:tabs.map(a => a.offsetLeft + a.offsetWidth / 2), tw:tabs[0].offsetWidth };
+      const bx = base.offsetLeft, by = base.offsetTop;
+      L = { w:nav.clientWidth, h:nav.clientHeight, bx, by, c:tabs.map(a => bx + a.offsetLeft + a.offsetWidth / 2), tw:tabs[0].offsetWidth, th:tabs[0].offsetHeight };
+      cur = tabs.findIndex(a => a.classList.contains("cur"));
     }
     const nearest = x => L.c.reduce((b, c, i) => Math.abs(c - x) < Math.abs(L.c[b] - x) ? i : b, 0);
     const clampX = x => Math.min(L.c[L.c.length - 1], Math.max(L.c[0], x));
-    function rrect(x, y, w, h){
-      const r = Math.min(w, h) / 2;
-      return `M${x + r} ${y}H${x + w - r}A${r} ${r} 0 0 1 ${x + w} ${y + r}V${y + h - r}A${r} ${r} 0 0 1 ${x + w - r} ${y + h}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + h - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
+    const f = n => Math.round(n * 100) / 100;
+    function capsule(x, y, w, h){
+      const r = f(Math.min(w, h) / 2); x = f(x); y = f(y); w = f(w); h = f(h);
+      return `M${x + r} ${y}H${f(x + w - r)}A${r} ${r} 0 0 1 ${f(x + w)} ${f(y + r)}V${f(y + h - r)}A${r} ${r} 0 0 1 ${f(x + w - r)} ${f(y + h)}H${f(x + r)}A${r} ${r} 0 0 1 ${x} ${f(y + h - r)}V${f(y + r)}A${r} ${r} 0 0 1 ${f(x + r)} ${y}Z`;
     }
     function paint(){
       if (!L) return;
-      const p = Math.max(0, s.p), stretch = Math.min(Math.abs(s.vx) / 2600, .32);
-      const w = (L.tw * (1 + .42 * p)) * (1 + stretch), h = ((L.h - PAD * 2) * (1 + .34 * p)) * (1 - stretch * .45);
-      const x = s.x - w / 2, y = L.h / 2 - h / 2, m = 1 + .14 * p;
-      const shown = cur >= 0 || p > .02;
-      for (const el of [lens, rim]){
-        el.style.width = w + "px"; el.style.height = h + "px";
-        el.style.transform = `translate(${x}px,${y}px)`;
-      }
-      lens.style.opacity = shown ? Math.max(0, 1 - p * 1.6) : 0;
-      rim.style.opacity = Math.min(1, p * 1.4);
-      // recolored, magnified copy of the tabs, clipped to the lens (clip is in pre-scale coordinates)
-      tint.style.visibility = shown ? "visible" : "hidden";
-      tint.style.transformOrigin = `${s.x}px ${L.h / 2}px`;
-      tint.style.transform = `scale(${m})`;
-      const cw = w / m, ch = h / m, cx = s.x - cw / 2, cy = L.h / 2 - ch / 2;
-      tint.style.clipPath = `inset(${cy}px ${L.w - cx - cw}px ${L.h - cy - ch}px ${cx}px round ${Math.min(cw, ch) / 2}px)`;
-      // punch the lens out of the plain icons so only the tinted copy shows inside it
-      tabs.forEach(a => {
-        const ax = a.offsetLeft, aw = a.offsetWidth, ay = a.offsetTop, ah = a.offsetHeight;
-        if (!shown || x > ax + aw || x + w < ax){ a.style.clipPath = ""; return; }
-        a.style.clipPath = `path(evenodd,"M-40 -40H${aw + 40}V${ah + 40}H-40Z${rrect(x - ax, y - ay, w, h)}")`;
-      });
+      const p = Math.max(0, s.p), pp = Math.min(1, p);
+      // measured from the recording: popped lens ≈ 1.3 tabs wide and ~10px taller than the bar; it smears sideways with speed
+      const stretch = Math.min(Math.abs(s.vx) / 1700, .55) * pp;
+      const w = L.tw * (1 + .3 * p) * (1 + stretch);
+      const h = L.th * (1 + .32 * p) * (1 - stretch * .3);
+      const x = s.x - w / 2, y = L.h / 2 - h / 2;
+      const shown = cur >= 0 || p > .01;
+      const box = `translate3d(${f(x)}px,${f(y)}px,0)`;
+      lens.style.cssText = `width:${f(w)}px;height:${f(h)}px;transform:${box};opacity:${shown ? f(Math.max(0, 1 - p * 1.8)) : 0}`;
+      rim.style.cssText = `width:${f(w)}px;height:${f(h)}px;transform:${box};opacity:${f(Math.min(1, p * 1.6))}`;
+      if (!shown){ tint.style.visibility = "hidden"; base.style.clipPath = ""; return; }
+      // blue copy: magnified about the lens centre; its clip is in pre-scale coordinates so it lands exactly on the lens
+      const m = 1 + .12 * pp, cw = w / m, ch = h / m, cx = s.x - cw / 2, cy = L.h / 2 - ch / 2;
+      tint.style.visibility = "visible";
+      tint.style.transformOrigin = `${f(s.x)}px ${f(L.h / 2)}px`;
+      tint.style.transform = p > .005 ? `scale(${f(m * 1000) / 1000})` : "none";
+      tint.style.clipPath = `inset(${f(cy)}px ${f(L.w - cx - cw)}px ${f(L.h - cy - ch)}px ${f(cx)}px round ${f(Math.min(cw, ch) / 2)}px)`;
+      // the plain tabs get one hole the shape of the lens, so only the blue copy shows inside it
+      base.style.clipPath = `path(evenodd,"M-60 -60H${L.w + 60}V${L.h + 60}H-60Z${capsule(x - L.bx, y - L.by, w, h)}")`;
     }
     function step(t){
-      const dt = Math.min(.032, (t - (last || t)) / 1000) || .016; last = t;
+      const dt = Math.min(.034, (t - (last || t)) / 1000) || 1 / 60; last = t;
       if (still.matches){ s.x = s.tx; s.vx = 0; s.p = s.tp; s.vp = 0; }
       else {
-        // position: snappy with a little overshoot; pop: softer and bouncier so the lens wobbles as it swells/settles
-        const ax = 560 * (s.tx - s.x) - 34 * s.vx; s.vx += ax * dt; s.x += s.vx * dt;
-        const ap = 380 * (s.tp - s.p) - 17 * s.vp; s.vp += ap * dt; s.p += s.vp * dt;
+        // finger-follow is tight (no felt lag); release/snap is softer with a small overshoot; the pop wobbles a little
+        const k = drag ? 1100 : 520, c = drag ? 58 : 36;
+        for (let i = 0, n = 2, h = dt / n; i < n; i++){   // two substeps keep the stiff spring stable at 60/120Hz
+          s.vx += (k * (s.tx - s.x) - c * s.vx) * h; s.x += s.vx * h;
+          s.vp += (460 * (s.tp - s.p) - 22 * s.vp) * h; s.p += s.vp * h;
+        }
       }
       paint();
-      const settled = Math.abs(s.tx - s.x) < .2 && Math.abs(s.vx) < 4 && Math.abs(s.tp - s.p) < .002 && Math.abs(s.vp) < .02;
+      const settled = Math.abs(s.tx - s.x) < .15 && Math.abs(s.vx) < 3 && Math.abs(s.tp - s.p) < .002 && Math.abs(s.vp) < .02;
       if (settled && !drag){ s.x = s.tx; s.p = s.tp; s.vx = s.vp = 0; paint(); raf = 0; last = 0; return; }
       raf = requestAnimationFrame(step);
     }
-    const kick = () => { if (!raf) raf = requestAnimationFrame(step); };
+    const kick = () => { if (!raf){ last = 0; raf = requestAnimationFrame(step); } };
     function reset(){
-      if (!on() || !build()){ tabs.forEach(a => { a.style.clipPath = ""; }); return; }
+      if (!on()){ if (base) base.style.clipPath = ""; return; }
+      if (!build()) return;
       measure();
       s.tx = s.x = L.c[Math.max(cur, 0)]; s.vx = 0;
       if (!drag){ s.tp = s.p = 0; s.vp = 0; }
@@ -118,35 +125,37 @@
       removeEventListener("pointermove", move); removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
       if (e.type === "pointercancel"){ s.tx = L.c[Math.max(cur, 0)]; s.tp = 0; kick(); return; }
       const i = nearest(s.tx); s.tx = L.c[i]; kick();
-      setTimeout(() => { s.tp = 0; kick(); }, 140);   // the lens lingers over the new tab, then sinks back into a pill
+      // the lens holds over the chosen tab for a beat, then sinks back into the pill
+      clearTimeout(sinkTimer); sinkTimer = setTimeout(() => { s.tp = 0; kick(); }, 260);
       fromPointer = true; setTimeout(() => { fromPointer = false; }, 500);
       if (i !== cur){
         const href = tabs[i].href; cur = i;
-        clearTimeout(navTimer); navTimer = setTimeout(() => { location.href = href; }, 230);
+        clearTimeout(navTimer); navTimer = setTimeout(() => { location.href = href; }, 150);
       }
     };
     nav.addEventListener("pointerdown", e => {
       if (!on() || !e.isPrimary || !L) return;
+      clearTimeout(sinkTimer);
       const r = nav.getBoundingClientRect();
       drag = { id:e.pointerId, x0:e.clientX, left:r.left, moved:false };
-      if (cur < 0 && s.p < .02){ s.x = clampX(e.clientX - r.left); }   // no current tab: the lens appears under the finger
+      if (cur < 0 && s.p < .02) s.x = clampX(e.clientX - r.left);   // no current tab: the lens appears under the finger
       s.tp = 1; s.tx = clampX(e.clientX - r.left); kick();
       addEventListener("pointermove", move, { passive:true }); addEventListener("pointerup", end); addEventListener("pointercancel", end);
     });
-    // pointer taps navigate from pointerup (after the lens settles); keyboard activation still uses the normal click
-    nav.addEventListener("click", e => { if (on() && (fromPointer || e.detail > 0)){ e.preventDefault(); } }, true);
+    // pointer taps navigate from pointerup; keyboard activation (detail 0) still uses the normal click
+    nav.addEventListener("click", e => { if (on() && (fromPointer || e.detail > 0)) e.preventDefault(); }, true);
     nav.addEventListener("contextmenu", e => { if (on()) e.preventDefault(); });
-    // back/forward cache restores the page mid-animation; put the pill back on the current tab
-    addEventListener("pageshow", e => { if (e.persisted){ clearTimeout(navTimer); reset(); } });
-    addEventListener("resize", () => { if (on() && tabs.length){ measure(); s.x = s.tx = L.c[nearest(s.tx)]; paint(); } });
+    addEventListener("pageshow", e => { if (e.persisted){ clearTimeout(navTimer); clearTimeout(sinkTimer); drag = null; reset(); } });
+    addEventListener("resize", () => { if (on() && L){ measure(); s.x = s.tx = L.c[nearest(s.tx)]; paint(); } });
 
-    new MutationObserver(muts => {
-      // renderHeader replaces the tabs; ignore our own lens/tint insertions
-      if (muts.some(m => [...m.addedNodes].some(n => n.tagName === "A"))) reset();
-    }).observe(nav, { childList:true });
+    // renderHeader replaces the bar's contents (e.g. once sign-in resolves); re-wrap the new tabs
+    new MutationObserver(() => { if (!building && nav.querySelector(":scope > a")) reset(); }).observe(nav, { childList:true });
     onToggle = reset;
     reset();
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (on() && tabs.length){ measure(); reset(); } });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (on() && L){ measure(); paint(); } });
+    // warm the cache for the other tabs so switching is quick
+    const warm = () => tabs.forEach(a => { if (!a.classList.contains("cur")) fetch(a.href, { credentials:"same-origin" }).catch(() => {}); });
+    if (window.requestIdleCallback) requestIdleCallback(warm, { timeout:3000 }); else setTimeout(warm, 1500);
   }
 
   /* ---------- touch light ---------- */

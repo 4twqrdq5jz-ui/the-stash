@@ -1,0 +1,16 @@
+{
+  "name": "The Stash",
+  "short_name": "The Stash",
+  "description": "Gay adult videos from verified 18+ creators. Adults only.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#11162A",
+  "theme_color": "#11162A",
+  "icons": [
+    { "src": "/assets/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
