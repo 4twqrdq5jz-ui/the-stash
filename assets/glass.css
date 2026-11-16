@@ -4,22 +4,24 @@
   --lg-tint:rgba(255,255,255,.46); --lg-tint-strong:rgba(248,250,255,.78); --lg-tint-dim:rgba(255,255,255,.22);
   --lg-rim:rgba(255,255,255,.95); --lg-rim-low:rgba(255,255,255,.35); --lg-glow:rgba(255,255,255,.55);
   --lg-drop:rgba(21,27,48,.16); --lg-blur:16px; --lg-sat:190%; --lg-bright:1.06;
-  --lg-pill:rgba(21,27,48,.07);
+  --lg-pill:rgba(21,27,48,.07); --lg-nav-pill:rgba(61,99,255,.10);
   --lg-angle:128deg;
   --lg-spring:cubic-bezier(.34,1.45,.64,1);
-  --lg-spring:linear(0, .06 2.4%, .23 5.2%, .5 9.1%, .76 13.6%, .92 18%, 1.02 23%, 1.05 27.5%, 1.04 33%, 1.01 41%, .995 52%, 1 70%, 1);
+}
+@supports (animation-timing-function:linear(0, .5, 1)){
+  :root{ --lg-spring:linear(0, .06 2.4%, .23 5.2%, .5 9.1%, .76 13.6%, .92 18%, 1.02 23%, 1.05 27.5%, 1.04 33%, 1.01 41%, .995 52%, 1 70%, 1); }
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --lg-tint:rgba(36,44,82,.42); --lg-tint-strong:rgba(24,30,58,.8); --lg-tint-dim:rgba(255,255,255,.08);
+    --lg-tint:rgba(38,40,44,.58); --lg-tint-strong:rgba(24,25,29,.84); --lg-tint-dim:rgba(255,255,255,.07);
     --lg-rim:rgba(255,255,255,.42); --lg-rim-low:rgba(255,255,255,.12); --lg-glow:rgba(255,255,255,.28);
-    --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12);
+    --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12); --lg-nav-pill:rgba(0,0,0,.26);
   }
 }
 :root[data-theme="dark"]{
-  --lg-tint:rgba(36,44,82,.42); --lg-tint-strong:rgba(24,30,58,.8); --lg-tint-dim:rgba(255,255,255,.08);
+  --lg-tint:rgba(38,40,44,.58); --lg-tint-strong:rgba(24,25,29,.84); --lg-tint-dim:rgba(255,255,255,.07);
   --lg-rim:rgba(255,255,255,.42); --lg-rim-low:rgba(255,255,255,.12); --lg-glow:rgba(255,255,255,.28);
-  --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12);
+  --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12); --lg-nav-pill:rgba(0,0,0,.26);
 }
 :root.lg{ -webkit-tap-highlight-color:transparent; }
 
@@ -98,14 +100,16 @@
   view-transition-name:lg-tabbar;
   transition:width .55s var(--lg-spring), padding .4s ease, bottom .4s ease;
 }
-:root.lg .bottomnav a{ position:relative; z-index:1; padding:7px 0 6px; border-radius:999px; gap:1px; font-size:10.5px; font-weight:500; -webkit-touch-callout:none; }
+:root.lg .bottomnav a{ position:relative; z-index:1; padding:7px 0 6px; border-radius:999px; gap:1px; font-size:10.5px; font-weight:500; transition:color .16s ease; -webkit-touch-callout:none; }
 :root.lg .bottomnav a svg{ transition:transform .45s var(--lg-spring); }
 :root.lg .bottomnav a span{ max-height:16px; transition:max-height .4s ease, opacity .25s ease; overflow:hidden; }
-:root.lg .bottomnav a.cur{ font-weight:650; }
+:root.lg .bottomnav a.cur{ color:var(--focus); font-weight:650; }
+:root.lg .bottomnav.lg-drag a.cur:not(.lg-near){ color:var(--muted); }
+:root.lg .bottomnav.lg-drag a.lg-near{ color:var(--focus); }
 :root.lg .bottomnav a.lg-near svg{ transform:scale(1.18); }
 :root.lg .lg-pill{
   position:absolute; z-index:0; left:4px; top:4px; bottom:4px; width:calc((100% - 8px) / var(--n, 5));
-  border-radius:999px; background:var(--lg-pill); pointer-events:none;
+  border-radius:999px; background:var(--lg-nav-pill); pointer-events:none;
   box-shadow:inset 0 1px 0 var(--lg-rim-low), inset 0 0 0 .5px var(--lg-rim-low);
   transform:translateX(calc(var(--i, 0) * 100%)) scale(1);
   transition:transform .6s var(--lg-spring), background .3s, box-shadow .3s, opacity .3s;

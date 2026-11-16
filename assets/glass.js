@@ -43,20 +43,18 @@
       const r = nav.getBoundingClientRect(), n = tabsOf(nav).length, w = (r.width - 8) / n;
       return Math.min(n - 1, Math.max(0, (x - r.left - 4) / w - .5));
     };
-    nav.addEventListener("pointerdown", e => {
-      if (!on() || !e.isPrimary) return;
-      drag = { x0:e.clientX, moved:false };
-      nav.classList.add("lg-drag"); setIndex(nav, indexAt(e.clientX));
-    });
-    nav.addEventListener("pointermove", e => {
-      if (!drag) return;
+    const move = e => {
+      if (!drag || drag.pointerId !== e.pointerId) return;
       if (Math.abs(e.clientX - drag.x0) > 8) drag.moved = true;
       setIndex(nav, indexAt(e.clientX));
-    });
+    };
     const end = e => {
-      if (!drag) return;
+      if (!drag || drag.pointerId !== e.pointerId) return;
       const moved = drag.moved, i = Math.round(indexAt(e.clientX)), tab = tabsOf(nav)[i];
       drag = null; nav.classList.remove("lg-drag");
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", end);
+      removeEventListener("pointercancel", end);
       if (e.type === "pointercancel"){ syncPill(nav); return; }
       setIndex(nav, i); nav.classList.remove("lg-nocur");
       // a slide across tabs ends on a different element than it started, so no click fires: navigate ourselves
@@ -65,8 +63,14 @@
         if (!tab.classList.contains("cur")) location.href = tab.href; else syncPill(nav);
       }
     };
-    nav.addEventListener("pointerup", end);
-    nav.addEventListener("pointercancel", end);
+    nav.addEventListener("pointerdown", e => {
+      if (!on() || !e.isPrimary) return;
+      drag = { x0:e.clientX, moved:false, pointerId:e.pointerId };
+      nav.classList.add("lg-drag"); setIndex(nav, indexAt(e.clientX));
+      addEventListener("pointermove", move, { passive:true });
+      addEventListener("pointerup", end);
+      addEventListener("pointercancel", end);
+    });
     nav.addEventListener("click", e => { if (suppressClick){ e.preventDefault(); suppressClick = false; } }, true);
     nav.addEventListener("contextmenu", e => { if (on()) e.preventDefault(); });
   }
