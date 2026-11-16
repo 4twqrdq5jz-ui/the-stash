@@ -1,10 +1,11 @@
-/* Liquid Glass — iOS mobile layout only. glass.js adds :root.lg on iOS when the mobile layout is active.
+/* Liquid Glass — iOS home-screen web app only. glass.js adds :root.lg there when the mobile layout is active.
    Glass is reserved for the navigation layer floating above content: tab bar, header controls, menus, sheets, toasts. */
 :root{
   --lg-tint:rgba(255,255,255,.46); --lg-tint-strong:rgba(248,250,255,.78); --lg-tint-dim:rgba(255,255,255,.22);
   --lg-rim:rgba(255,255,255,.95); --lg-rim-low:rgba(255,255,255,.35); --lg-glow:rgba(255,255,255,.55);
   --lg-drop:rgba(21,27,48,.16); --lg-blur:16px; --lg-sat:190%; --lg-bright:1.06;
   --lg-pill:rgba(21,27,48,.07); --lg-nav-pill:rgba(61,99,255,.10);
+  --lg-bar:rgba(255,255,255,.42); --lg-bar-bright:1.04;
   --lg-angle:128deg;
   --lg-spring:cubic-bezier(.34,1.45,.64,1);
 }
@@ -16,12 +17,14 @@
     --lg-tint:rgba(38,40,44,.58); --lg-tint-strong:rgba(24,25,29,.84); --lg-tint-dim:rgba(255,255,255,.07);
     --lg-rim:rgba(255,255,255,.42); --lg-rim-low:rgba(255,255,255,.12); --lg-glow:rgba(255,255,255,.28);
     --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12); --lg-nav-pill:rgba(0,0,0,.26);
+    --lg-bar:rgba(44,44,48,.36); --lg-bar-bright:1.08;
   }
 }
 :root[data-theme="dark"]{
   --lg-tint:rgba(38,40,44,.58); --lg-tint-strong:rgba(24,25,29,.84); --lg-tint-dim:rgba(255,255,255,.07);
   --lg-rim:rgba(255,255,255,.42); --lg-rim-low:rgba(255,255,255,.12); --lg-glow:rgba(255,255,255,.28);
   --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12); --lg-nav-pill:rgba(0,0,0,.26);
+  --lg-bar:rgba(44,44,48,.36); --lg-bar-bright:1.08;
 }
 :root.lg{ -webkit-tap-highlight-color:transparent; }
 
@@ -40,28 +43,25 @@
     0 10px 30px -6px var(--lg-drop),
     0 1px 3px var(--lg-drop);
 }
-/* specular edge: a gradient ring masked to the border; its angle drifts with scroll so the reflection moves */
-:root.lg :where(.bottomnav, .top .iconbtn, .top .btn, .search.open, .menu, .toast, .sp-flash, .sp-big)::before{
+/* specular edge: a gradient ring masked to the border, bright top-left and bottom-right */
+:root.lg :where(.top .iconbtn, .top .btn, .search.open, .menu, .toast, .sp-flash, .sp-big)::before{
   content:""; position:absolute; inset:0; border-radius:inherit; padding:1.2px; pointer-events:none; z-index:2;
   background:linear-gradient(var(--lg-angle), var(--lg-rim) 0%, transparent 28%, transparent 62%, var(--lg-rim-low) 82%, var(--lg-rim) 100%);
   -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;
   mask:linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-  transition:background .4s;
 }
 /* touch light: glass lights up where the finger lands */
-:root.lg :where(.bottomnav, .top .iconbtn, .top .btn, .toast, .sp-big)::after{
+:root.lg :where(.top .iconbtn, .top .btn, .toast, .sp-big)::after{
   content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:-1;
   background:radial-gradient(circle at var(--px,50%) var(--py,50%), var(--lg-glow), transparent 62%);
   opacity:0; transition:opacity .45s ease-out;
 }
 :root.lg .lg-pressed::after{ opacity:1; transition-duration:.08s; }
 
-/* ---------- header: floating glass controls over a progressive scroll-edge blur ---------- */
+/* ---------- header: floating glass controls over a soft fade at the top edge ---------- */
 :root.lg body::before{
   height:calc(env(safe-area-inset-top,0px) + 74px); pointer-events:none;
   background:linear-gradient(to bottom, color-mix(in srgb, var(--bg) 82%, transparent), color-mix(in srgb, var(--bg) 0%, transparent));
-  -webkit-backdrop-filter:blur(10px) saturate(160%); backdrop-filter:blur(10px) saturate(160%);
-  -webkit-mask-image:linear-gradient(to bottom, #000 45%, transparent); mask-image:linear-gradient(to bottom, #000 45%, transparent);
 }
 :root.lg .top{ background:transparent; border-bottom:0; view-transition-name:lg-top; }
 :root.lg .top .iconbtn{ position:relative; width:40px; height:40px; isolation:isolate; }
@@ -90,44 +90,43 @@
 :root.lg .menu a, :root.lg .menu button{ border-radius:14px; }
 :root.lg .menu a:hover, :root.lg .menu button:hover, :root.lg .menu a:active, :root.lg .menu button:active{ background:var(--lg-pill); }
 :root.lg .menu .who, :root.lg .menuhead{ border-color:var(--lg-rim-low); }
-@keyframes lgDrop{ from{ opacity:0; transform:scale(.4); filter:blur(6px); } 40%{ opacity:1; filter:none; } to{ transform:none; } }
+@keyframes lgDrop{ from{ opacity:0; transform:scale(.4); } 40%{ opacity:1; } to{ transform:none; } }
 
-/* ---------- tab bar: floating capsule with a liquid selection droplet ---------- */
+/* ---------- tab bar: thin clear capsule; glass.js drives the selection lens ---------- */
+/* light blur so content stays visible and keeps its colour, like the system bar */
 :root.lg .bottomnav{
   left:0; right:0; margin:0 auto; transform:none; width:min(calc(100% - 24px), 500px);
   bottom:max(12px, calc(env(safe-area-inset-bottom,0px) - 8px)); padding:4px;
-  background:var(--lg-tint); border-radius:999px; border-top:0; isolation:isolate; touch-action:none; user-select:none; -webkit-user-select:none;
-  view-transition-name:lg-tabbar;
-  transition:width .55s var(--lg-spring), padding .4s ease, bottom .4s ease;
+  background:var(--lg-bar); border-radius:999px; border-top:0; isolation:isolate;
+  -webkit-backdrop-filter:blur(3px) saturate(180%) brightness(var(--lg-bar-bright)); backdrop-filter:blur(3px) saturate(180%) brightness(var(--lg-bar-bright));
+  box-shadow:inset 0 .5px 0 var(--lg-rim), inset 0 0 0 .5px var(--lg-rim-low), 0 10px 28px -10px var(--lg-drop);
+  touch-action:none; user-select:none; -webkit-user-select:none;
 }
-:root.lg .bottomnav a{ position:relative; z-index:1; padding:7px 0 6px; border-radius:999px; gap:1px; font-size:10.5px; font-weight:500; transition:color .16s ease; -webkit-touch-callout:none; }
-:root.lg .bottomnav a svg{ transition:transform .45s var(--lg-spring); }
-:root.lg .bottomnav a span{ max-height:16px; transition:max-height .4s ease, opacity .25s ease; overflow:hidden; }
-:root.lg .bottomnav a.cur{ color:var(--focus); font-weight:650; }
-:root.lg .bottomnav.lg-drag a.cur:not(.lg-near){ color:var(--muted); }
-:root.lg .bottomnav.lg-drag a.lg-near{ color:var(--focus); }
-:root.lg .bottomnav a.lg-near svg{ transform:scale(1.18); }
-:root.lg .lg-pill{
-  position:absolute; z-index:0; left:4px; top:4px; bottom:4px; width:calc((100% - 8px) / var(--n, 5));
-  border-radius:999px; background:var(--lg-nav-pill); pointer-events:none;
-  box-shadow:inset 0 1px 0 var(--lg-rim-low), inset 0 0 0 .5px var(--lg-rim-low);
-  transform:translateX(calc(var(--i, 0) * 100%)) scale(1);
-  transition:transform .6s var(--lg-spring), background .3s, box-shadow .3s, opacity .3s;
-  view-transition-name:lg-pill;
+:root.lg .bottomnav a, :root.lg .lg-ti{ flex:1; display:flex; flex-direction:column; align-items:center; gap:1px; padding:7px 0 6px; font-size:10.5px; font-weight:600; }
+:root.lg .bottomnav a{ position:relative; z-index:1; color:var(--ink); -webkit-touch-callout:none; }
+:root.lg .bottomnav a.cur{ color:var(--focus); }
+:root.lg .bottomnav.lg-live a.cur{ color:var(--ink); }
+:root.lg .lg-tint{ position:absolute; inset:0; z-index:2; display:flex; padding:4px; color:var(--focus); pointer-events:none; will-change:transform, clip-path; }
+:root.lg .lg-lens, :root.lg .lg-rim{ position:absolute; left:0; top:0; border-radius:999px; pointer-events:none; will-change:transform, width, height, opacity; }
+/* resting pill under the current tab */
+:root.lg .lg-lens{ z-index:0; background:var(--lg-nav-pill); }
+/* popped lens: clear, bright rim, soft gloss, chromatic fringe at the edges */
+:root.lg .lg-rim{
+  z-index:3; opacity:0;
+  background:radial-gradient(120% 90% at 28% 18%, rgba(255,255,255,.22), rgba(255,255,255,.04) 45%, transparent 70%);
+  box-shadow:
+    inset 0 0 0 .75px rgba(255,255,255,.6),
+    inset 1.5px 2px 1.5px -1px rgba(255,255,255,.9),
+    inset -1.5px -2px 2px -1px rgba(255,255,255,.45),
+    inset 0 0 12px rgba(255,255,255,.14),
+    0 8px 22px -8px rgba(0,0,0,.45);
 }
-:root.lg .bottomnav.lg-nocur:not(.lg-drag) .lg-pill{ opacity:0; }
-/* while dragging, the droplet swells past the bar like a lens and lights up */
-:root.lg .bottomnav.lg-drag .lg-pill{
-  transform:translateX(calc(var(--i, 0) * 100%)) scale(1.22, 1.3);
-  transition:transform .22s cubic-bezier(.2,.8,.3,1), background .2s, box-shadow .2s;
-  background:linear-gradient(var(--lg-angle), rgba(255,255,255,.55), rgba(255,255,255,.12) 55%, rgba(255,255,255,.3));
-  box-shadow:inset 0 1px 1px var(--lg-rim), inset 0 -1px 1px var(--lg-rim-low), inset 0 0 12px rgba(255,255,255,.35), inset 0 0 0 .5px var(--lg-rim), 0 6px 20px -4px var(--lg-drop);
+:root.lg .lg-rim::before{
+  content:""; position:absolute; inset:-.5px; border-radius:inherit; padding:2.5px; filter:blur(.8px);
+  background:conic-gradient(from 210deg, transparent 0%, rgba(255,80,60,.8) 7%, rgba(255,210,70,.5) 13%, transparent 21%, transparent 47%, rgba(60,170,255,.8) 56%, rgba(160,90,255,.55) 63%, transparent 72%, transparent 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
-/* scroll down: the bar tucks in; scroll up: it springs back */
-:root.lg.lg-min .bottomnav{ width:min(calc(100% - 110px), 330px); padding:3px; }
-:root.lg.lg-min .bottomnav a span{ max-height:0; opacity:0; }
-:root.lg.lg-min .bottomnav a{ padding:9px 0; }
-:root.lg.lg-min .lg-pill{ left:3px; top:3px; bottom:3px; width:calc((100% - 6px) / var(--n, 5)); }
 :root.lg main{ padding-bottom:110px !important; }
 
 /* ---------- toast: capsule that drops in, then dissolves ---------- */
@@ -137,7 +136,7 @@
   animation:lgToastIn .6s var(--lg-spring) backwards, lgToastOut .35s ease-in 3.05s forwards;
 }
 @keyframes lgToastIn{ from{ opacity:0; transform:translateX(-50%) translateY(18px) scale(.6); } 35%{ opacity:1; } to{ transform:translateX(-50%); } }
-@keyframes lgToastOut{ to{ opacity:0; transform:translateX(-50%) scale(.85); filter:blur(4px); } }
+@keyframes lgToastOut{ to{ opacity:0; transform:translateX(-50%) scale(.85); } }
 
 /* ---------- sheets: modals rise from the bottom as glass ---------- */
 :root.lg .modal-bg{ align-items:end; padding:0 8px max(8px, env(safe-area-inset-bottom,0px)); background:rgba(5,8,20,.28); animation:lgFade .3s ease-out backwards; }
@@ -192,13 +191,6 @@
 :root.lg :is(.top .iconbtn, .top .btn):active{ transform:scale(1.1); }
 :root.lg main .btn, :root.lg .modal .btn, :root.lg .catchip{ transition:transform .45s var(--lg-spring), filter .2s; }
 :root.lg main .btn:active, :root.lg .modal .btn:active, :root.lg .catchip:active{ transform:scale(.95); }
-
-/* ---------- page-to-page morphs (Safari 18.2+): tab bar and header stay put, the droplet slides ---------- */
-@media (max-width: 860px) and (hover: none) and (prefers-reduced-motion: no-preference){
-  @view-transition{ navigation:auto; }
-}
-::view-transition-group(lg-pill){ animation-duration:.55s; animation-timing-function:var(--lg-spring); }
-::view-transition-old(root), ::view-transition-new(root){ animation-duration:.22s; }
 
 /* ---------- fallbacks ---------- */
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
