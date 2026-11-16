@@ -784,8 +784,8 @@ PAGES.upload = async () => {
     '<div id="picker"><div class="srctabs" role="tablist" aria-label="Where the video comes from"><button role="tab" data-src="device">From your device</button><button role="tab" data-src="x">From X</button></div><div id="srcPane"></div></div>' +
     '<div id="upform" hidden><div class="preview"><video id="vprev" controls playsinline muted></video></div><div class="vsmall" id="vinfo" style="margin-top:6px"></div>' +
     '<div class="field"><label for="vtitle">Title <span class="hint">(required)</span></label><input class="input" id="vtitle" maxlength="100"></div>' +
-    '<div class="field"><label>Categories <span class="hint">optional; select all that apply</span></label>' + categoryPicker("vcats", cats, param("cat") ? (cats.find(c => c.slug === param("cat")) || {}).id : "") + '</div>' +
-    '<div class="field"><label>Jump to actions <span class="hint">optional; each action needs a name and time</span></label>' + actionEditor("vactions", []) + '</div>' +
+    '<div class="field"><label>Categories <span class="hint">suggested automatically; review before publishing</span></label>' + categoryPicker("vcats", cats, param("cat") ? (cats.find(c => c.slug === param("cat")) || {}).id : "") + '</div>' +
+    '<div class="field"><label>Jump to actions <span class="hint">suggested automatically; review names and times</span></label>' + actionEditor("vactions", []) + '</div>' +
     '<div class="field"><label>Models <span class="hint">optional. Every model you tag must approve before the video goes public.</span></label><div id="vmodels"></div></div>' +
     '<div class="field"><label for="vto">Post to</label><select id="vto">' + targets.map(t => '<option value="' + esc(t.id) + '">' + esc(displayName(t)) + ' (@' + esc(t.username) + ')' + (isChannel(t) ? ", channel" : ", your profile") + '</option>').join("") + '</select>' +
       (targets.some(isChannel) ? "" : '<p class="vsmall" style="margin:6px 0 0">Videos post to your profile, where people can follow you.</p>') + '</div>' +
@@ -797,7 +797,7 @@ PAGES.upload = async () => {
     '<div class="progress" id="prog" hidden><i></i></div><div class="vsmall" id="progText"></div><div class="err" id="uperr" role="alert"></div>' +
     '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn ghost" id="reset">Choose another video</button><button class="btn primary" id="pub">Publish</button></div></div></div>';
   if (want && targets.some(t => t.id === want)) $("#vto").value = want;
-  let file = null, prevUrl = null, busy = false, grabber = null, thumb = null, thumbUrl = null, gen = 0, imported = null;
+  let file = null, prevUrl = null, busy = false, analysisPending = false, analysisSeq = 0, grabber = null, thumb = null, thumbUrl = null, gen = 0, imported = null;
   const picker = modelPicker($("#vmodels"), S.profile.is_model ? [S.profile] : []);
   wireActionEditor($("#vactions"), $("#vprev"));
 
@@ -805,7 +805,7 @@ PAGES.upload = async () => {
     el.querySelectorAll("[data-src]").forEach(b => { const on = b.dataset.src === source; b.classList.toggle("cur", on); b.setAttribute("aria-selected", String(on)); });
     const pane = $("#srcPane");
     if (source === "device"){
-      pane.innerHTML = '<div class="drop" id="drop"><h2 style="font-size:19px">Drop a video here</h2><p>Video files up to ' + maxLabel + '. Files are converted in your browser to MP4 (H.264 video and AAC audio) before upload. Conversion can be slow and use a lot of memory, especially for large videos.</p><label class="btn primary" style="cursor:pointer">Choose file<input type="file" id="vfile" accept="' + esc(S.VIDEO_ACCEPT) + '" class="sr"></label></div>';
+      pane.innerHTML = '<div class="drop" id="drop"><h2 style="font-size:19px">Drop a video here</h2><p>Video files up to ' + maxLabel + '. The original file is uploaded without conversion. Playback depends on your browser supporting the video format and codec.</p><label class="btn primary" style="cursor:pointer">Choose file<input type="file" id="vfile" accept="' + esc(S.VIDEO_ACCEPT) + '" class="sr"></label></div>';
       const fi = $("#vfile"), drop = $("#drop");
       fi.addEventListener("change", () => { if (fi.files[0]) pick(fi.files[0]); fi.value = ""; });
       drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
@@ -856,40 +856,89 @@ PAGES.upload = async () => {
     if (r) thumb = { blob: r.blob, time: r.time, custom: false };
     showThumb(); sh.disabled = false;
   };
+  const lockSuggestions = locked => {
+    $("#vcats").querySelectorAll("input").forEach(input => { input.disabled = locked; });
+    $("#vactions").querySelectorAll("input,button").forEach(input => { input.disabled = locked; });
+  };
+  const setSuggestedActions = actions => {
+    const root = $("#vactions"), add = root.querySelector("[data-action-add]");
+    root.querySelectorAll(".jumpeditrow").forEach(row => row.remove());
+    for (const action of actions){
+      add.insertAdjacentHTML("beforebegin", '<div class="jumpeditrow"><div class="field"><label>Action name</label><input class="input" data-action-name maxlength="80" required placeholder="Action"></div><div class="field"><label>Time</label><div class="xrow"><input class="input" data-action-time required inputmode="numeric" placeholder="2:15"><button class="btn sm ghost" data-action-now type="button">Use now</button><button class="btn sm ghost" data-action-remove type="button" aria-label="Remove action">×</button></div></div></div>');
+      const row = add.previousElementSibling;
+      row.querySelector("[data-action-name]").value = action.name;
+      row.querySelector("[data-action-time]").value = S.clock(action.action_time);
+    }
+  };
+  const autoAnalyze = async run => {
+    const isCancelled = () => run !== analysisSeq;
+    try {
+      let playable = await grabber.canPlay();
+      if (isCancelled()) return;
+      if (!playable) throw new Error("This browser couldn't read frames from the video.");
+      await pickFrame();
+      if (isCancelled()) return;
+      const result = await window.StashVideoAI.analyze(grabber, cats, (progress) => {
+        if (isCancelled()) return;
+        if (progress.stage === "model"){
+          $("#progText").textContent = "Loading the on-device video analysis model. First use may take a while.";
+          $("#prog").querySelector("i").style.width = "25%";
+        } else {
+          const percent = 25 + Math.round(progress.current / progress.total * 75);
+          $("#prog").querySelector("i").style.width = percent + "%";
+          $("#progText").textContent = "Scanning video frames on this device… " + progress.current + " of " + progress.total;
+        }
+      }, isCancelled);
+      if (isCancelled() || result.cancelled) return;
+      const existing = new Set([...$("#vcats").querySelectorAll("input:checked")].map(input => input.value));
+      result.categories.forEach(id => existing.add(id));
+      $("#vcats").querySelectorAll("input").forEach(input => { input.checked = existing.has(input.value); });
+      setSuggestedActions(result.actions);
+      $("#prog").querySelector("i").style.width = "100%";
+      $("#progText").textContent = "Auto-detection suggested " + result.categories.length + " categor" + (result.categories.length === 1 ? "y" : "ies") + " and " + result.actions.length + " jump-to action" + (result.actions.length === 1 ? "" : "s") + ". Review them before publishing.";
+    } catch(error){
+      if (isCancelled()) return;
+      $("#progText").textContent = "Automatic suggestions weren't available: " + (error && error.message || "video analysis failed") + " Add categories and actions manually.";
+    } finally {
+      if (!isCancelled()){
+        analysisPending = false;
+        lockSuggestions(false);
+        $("#pub").disabled = false;
+      }
+    }
+  };
   const dropImported = () => { if (imported){ sb.storage.from("videos").remove([imported.path]).then(() => {}); imported = null; } };
   function pick(f, o){
     o = o || {};
     const type = S.videoType(f);
-    if (!type){ toast("Use an MP4, M4V or WebM file. MP4 with H.264 video and AAC audio works in the most browsers."); return; }
+    if (!type){ toast("Choose a video file to get automatic category and action suggestions."); return; }
     if (f.size > MAXMB * 1048576){ toast("That video is " + (f.size / 1048576).toFixed(0) + " MB. The limit is " + maxLabel + "."); return; }
+    const run = ++analysisSeq;
     if (!o.imported) dropImported();
     if (prevUrl) URL.revokeObjectURL(prevUrl); if (grabber) grabber.close();
     file = f; prevUrl = URL.createObjectURL(f); thumb = null; grabber = S.frameGrabber(f);
     $("#picker").hidden = true; $("#upform").hidden = false; $("#uperr").textContent = "";
+    analysisPending = true; $("#pub").disabled = true; lockSuggestions(true);
+    $("#prog").hidden = false; $("#prog").querySelector("i").style.width = "0%";
+    $("#progText").textContent = "Preparing on-device video analysis…";
     $("#vprev").src = prevUrl;
     const sizeTxt = f.size >= 1073741824 ? (f.size / 1073741824).toFixed(2) + " GB" : (f.size / 1048576).toFixed(1) + " MB";
-    $("#vinfo").textContent = (o.imported ? "Imported from your X post, " : f.name + ", ") + sizeTxt;
-    grabber.canPlay().then(ok => {
-      if (file !== f) return;
-      const note = ok
-        ? "This video will be converted to MP4 (H.264/AAC) before upload."
-        : "This browser can't preview the original, but it will still try to convert it to MP4 before upload.";
-      $("#vinfo").innerHTML = esc($("#vinfo").textContent) + '<br><span class="warn">' + esc(note) + '</span>';
-    });
+    $("#vinfo").innerHTML = esc((o.imported ? "Imported from your X post, " : f.name + ", ") + sizeTxt) + '<br><span class="vsmall">Frames are analyzed on this device and are not sent to an AI service. Suggestions may be wrong; review them.</span>';
     const t = $("#vtitle");
     if (o.title && !t.value) t.value = o.title.slice(0, 100);
     if (!t.value) t.value = o.imported ? "" : f.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100);
     t.focus();
-    pickFrame();
+    autoAnalyze(run);
   }
   $("#tShuffle").addEventListener("click", pickFrame);
   $("#vthumb").addEventListener("change", async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; try { gen++; thumb = { blob: await S.cropImage(f, 1280, 720), time: null, custom: true }; showThumb(); $("#tShuffle").disabled = !grabber; } catch(x){ toast(x.message); } });
-  $("#reset").addEventListener("click", () => { if (busy) return; gen++; dropImported(); file = null; thumb = null; if (grabber) grabber.close(); grabber = null; if (prevUrl) URL.revokeObjectURL(prevUrl); prevUrl = null; $("#vprev").removeAttribute("src"); $("#vtitle").value = ""; $("#vactions").querySelectorAll(".jumpeditrow").forEach(r => r.remove()); $("#tprev").textContent = "Choosing a frame…"; $("#tinfo").textContent = ""; $("#upform").hidden = true; $("#picker").hidden = false; paintSource(); });
+  $("#reset").addEventListener("click", () => { if (busy) return; analysisSeq++; analysisPending = false; lockSuggestions(false); $("#pub").disabled = false; $("#prog").hidden = true; $("#progText").textContent = ""; gen++; dropImported(); file = null; thumb = null; if (grabber) grabber.close(); grabber = null; if (prevUrl) URL.revokeObjectURL(prevUrl); prevUrl = null; $("#vprev").removeAttribute("src"); $("#vtitle").value = ""; $("#vactions").querySelectorAll(".jumpeditrow").forEach(r => r.remove()); $("#tprev").textContent = "Choosing a frame…"; $("#tinfo").textContent = ""; $("#upform").hidden = true; $("#picker").hidden = false; paintSource(); });
   window.addEventListener("beforeunload", e => { if (busy || imported){ if (busy){ e.preventDefault(); e.returnValue = ""; } } });
   window.addEventListener("pagehide", () => { if (!busy && imported && !imported.published) dropImported(); });
   $("#pub").addEventListener("click", async () => {
     if (busy) return;
     const err = $("#uperr"), btn = $("#pub"), title = $("#vtitle").value.trim(), owner_id = $("#vto").value;
+    if (analysisPending){ err.textContent = "Wait for the local video analysis to finish before publishing."; return; }
     const category_ids = [...$("#vcats").querySelectorAll("input:checked")].map(i => i.value);
     if (!file){ err.textContent = "Choose a video first."; return; }
     if (!title){ err.textContent = "Add a title."; $("#vtitle").focus(); return; }
@@ -903,26 +952,23 @@ PAGES.upload = async () => {
     const prog = $("#prog"), bar = prog.querySelector("i"), ptxt = $("#progText");
     const fail = m => { busy = false; err.textContent = m; btn.disabled = false; $("#reset").disabled = false; btn.textContent = "Publish"; prog.hidden = true; ptxt.textContent = ""; };
     const id = S.uuid(), folder = S.user.id;
-    let vpath = null, duration = dlen, uploadFile;
-    prog.hidden = false; bar.style.width = "0%"; ptxt.textContent = "Preparing video converter…";
-    try {
-      uploadFile = await S.convertVideoToMp4(file, f => {
-        const pc = Math.round(f * 55); bar.style.width = pc + "%"; ptxt.textContent = "Converting to MP4… " + pc + "%";
-      });
-    } catch(e){ fail(errText(e, "This video couldn't be converted to MP4.")); return; }
-    if (uploadFile.size > MAXMB * 1048576){ fail("The converted MP4 is larger than the " + maxLabel + " upload limit. Try a shorter or smaller source video."); return; }
+    let vpath = null, duration = dlen;
+    prog.hidden = false;
     if (!duration){
-      const convertedProbe = S.frameGrabber(uploadFile);
-      duration = await convertedProbe.duration();
-      convertedProbe.close();
+      const fileProbe = S.frameGrabber(file);
+      duration = await fileProbe.duration();
+      fileProbe.close();
     }
     parsedActions = readActions($("#vactions"), duration || Infinity);
     if (parsedActions.error){ fail(parsedActions.error); return; }
     action_time = parsedActions.actions[0] ? parsedActions.actions[0].action_time : null;
-    vpath = folder + "/" + id + ".mp4";
-    ptxt.textContent = "Uploading converted MP4… 55%";
+    const extension = (String(file.name || "").match(/\.([a-z0-9]{1,10})$/i) || [null, "video"])[1].toLowerCase();
+    const uploadType = S.videoType(file) || file.type || "application/octet-stream";
+    if (file.size > MAXMB * 1048576){ fail("That video is larger than the " + maxLabel + " upload limit."); return; }
+    vpath = folder + "/" + id + "." + extension;
+    bar.style.width = "0%"; ptxt.textContent = "Uploading original video… 0%";
     const t0 = Date.now();
-    try { await S.uploadResumable("videos", vpath, uploadFile, "video/mp4", f => { const pc = 55 + Math.round(f * 45); bar.style.width = pc + "%"; const el2 = (Date.now() - t0) / 1000, left = f > 0.02 ? el2 / f - el2 : 0; ptxt.textContent = "Uploading converted MP4… " + pc + "%" + (left > 5 ? ", about " + (left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + " s") + " left" : ""); }); }
+    try { await S.uploadResumable("videos", vpath, file, uploadType, f => { const pc = Math.round(f * 100); bar.style.width = pc + "%"; const el2 = (Date.now() - t0) / 1000, left = f > 0.02 ? el2 / f - el2 : 0; ptxt.textContent = "Uploading original video… " + pc + "%" + (left > 5 ? ", about " + (left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + " s") + " left" : ""); }); }
     catch(e){
       const removed = await sb.storage.from("videos").remove([vpath]);
       const cleanupNote = removed.error ? " The incomplete upload could not be removed from Storage; contact support." : "";

@@ -8,10 +8,11 @@ A gay adult video site for adults 18+. Anyone 18 or older can watch without an a
 - Members can apply to be **models** from the Model tab on their profile. They send their legal name, date of birth, a photo of their ID and a selfie holding it. You review each one on the Admin page.
 - Only verified models (and the founding account) can upload.
 - New member profiles automatically follow the founder. The founder, approved models, and the reserved **@thestash** website account have a verification mark.
-- The **@thestash** username is reserved for the website account and must be provisioned by site administration.
+- The **@thestash** username is reserved for the website account and can only be claimed by its designated account email or provisioned by site administration.
 - Every upload needs a declaration that everyone in it was 18+ when filmed and consented to filming and publishing. Tagging verified models is optional.
 - A video with model tags stays private until every tagged model approves. Models can remove themselves at any time.
 - Uploads can be assigned to multiple categories and can include multiple named jump-to-action times.
+- Centered footer buttons let you switch between desktop/mobile layouts and system/light/dark themes. The layout follows the current device by default, and your choices are saved in your browser.
 
 Sign-in options are email and password (with a weak/fair/strong meter and confirm field), Google, and X.
 
@@ -74,7 +75,9 @@ Google and X both publish official sign-in button artwork and branding rules. Th
 
 ## 3. Set up video storage and playback
 
-New device uploads are converted in the browser to MP4 with H.264 video and AAC audio, then stored in the Supabase `videos` bucket. This conversion uses ffmpeg.wasm; its roughly 32 MB conversion engine is downloaded from jsDelivr when converting. Conversion can be slow and memory-intensive, especially for large videos or on phones. Videos previously uploaded to Cloudflare Stream can still play using the legacy playback configuration.
+New device uploads are stored in the Supabase `videos` bucket in their original format; the site does not transcode them. Playback depends on each viewer's browser supporting the uploaded format and codec. Videos previously uploaded to Cloudflare Stream can still play using the legacy playback configuration.
+
+When a video is selected from a device or imported from X, the upload page can suggest categories and named jump-to actions by analyzing sampled frames on the device. Video frames are not sent to an AI service, but the analysis library and model are downloaded from jsDelivr and Hugging Face. This may take time and use substantial browser memory; suggestions can be inaccurate and should be reviewed before publishing.
 
 The schema creates the `videos` bucket with a 1 GB file limit. Check **Storage → Buckets → videos → Settings** in Supabase and make sure its file-size limit is large enough for `MAX_VIDEO_MB` in `assets/config.js`. Your Supabase plan's global upload-size limit must also permit files that large; if it does not, reduce `MAX_VIDEO_MB`. New uploads do not need a Cloudflare API key or function.
 
@@ -151,7 +154,7 @@ These aren't legal advice, but they're the things that most often shut adult sit
 
 - **Login background:** put your image at `assets/login-bg.jpg`. Then in `assets/app.css`, change `login-bg.svg` to `login-bg.jpg` in the `.login-bg` rule. Use a wide image, at least 1920 px across. A dark overlay is added automatically so the sign-in card stays readable.
 - **Video size:** uploads are limited by `MAX_VIDEO_MB` in `assets/config.js` and the file-size limits in Supabase Storage.
-- **Video compatibility:** uploaded files are converted to MP4 with H.264 video and AAC audio in the browser before storage. Browser memory and the ffmpeg.wasm-supported input formats limit which large or unusual files can be converted.
+- **Video compatibility:** uploaded files are stored without conversion. Some formats and codecs may not play in every browser; use a browser-compatible format when cross-browser playback is needed.
 - **Quality options:** the player's settings menu lists manually configured additional sources for videos that have them.
 - **Adult mode** is on (`ADULT_CONTENT: true` in `assets/config.js`). It adds:
   - an 18+ entry screen
@@ -175,7 +178,7 @@ These aren't legal advice, but they're the things that most often shut adult sit
   The speed menu goes from 0.25× to 2×, and volume and mute are remembered between visits.
 - **Recommended and autoplay:** the column next to the player favors the same creator, accounts you follow or subscribe to, similar titles, popular videos and newer uploads. With Autoplay on, the next recommendation starts after a 5-second countdown, which you can cancel. Playlists always play in order.
 - **Anniversaries:** profiles show when someone joined. On the anniversary of that date, the profile shows a celebration banner and a "🎂 1 year" badge next to their name everywhere. The person also gets a dismissible note on the home page. Achievements unlock at 1, 2 and 5 years.
-- **Video formats:** device uploads accept common video formats and are converted to MP4 (H.264/AAC) in the browser. Large files may exceed available browser memory.
+- **Video formats:** device uploads keep the original format. Playback depends on the viewer's browser, and automatic category/action analysis only works for videos the browser can decode.
 
 ## How data is kept safe
 

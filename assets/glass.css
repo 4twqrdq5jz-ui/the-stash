@@ -1,0 +1,206 @@
+/* Liquid Glass — iOS mobile layout only. glass.js adds :root.lg on iOS when the mobile layout is active.
+   Glass is reserved for the navigation layer floating above content: tab bar, header controls, menus, sheets, toasts. */
+:root{
+  --lg-tint:rgba(255,255,255,.46); --lg-tint-strong:rgba(248,250,255,.78); --lg-tint-dim:rgba(255,255,255,.22);
+  --lg-rim:rgba(255,255,255,.95); --lg-rim-low:rgba(255,255,255,.35); --lg-glow:rgba(255,255,255,.55);
+  --lg-drop:rgba(21,27,48,.16); --lg-blur:16px; --lg-sat:190%; --lg-bright:1.06;
+  --lg-pill:rgba(21,27,48,.07);
+  --lg-angle:128deg;
+  --lg-spring:cubic-bezier(.34,1.45,.64,1);
+  --lg-spring:linear(0, .06 2.4%, .23 5.2%, .5 9.1%, .76 13.6%, .92 18%, 1.02 23%, 1.05 27.5%, 1.04 33%, 1.01 41%, .995 52%, 1 70%, 1);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --lg-tint:rgba(36,44,82,.42); --lg-tint-strong:rgba(24,30,58,.8); --lg-tint-dim:rgba(255,255,255,.08);
+    --lg-rim:rgba(255,255,255,.42); --lg-rim-low:rgba(255,255,255,.12); --lg-glow:rgba(255,255,255,.28);
+    --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12);
+  }
+}
+:root[data-theme="dark"]{
+  --lg-tint:rgba(36,44,82,.42); --lg-tint-strong:rgba(24,30,58,.8); --lg-tint-dim:rgba(255,255,255,.08);
+  --lg-rim:rgba(255,255,255,.42); --lg-rim-low:rgba(255,255,255,.12); --lg-glow:rgba(255,255,255,.28);
+  --lg-drop:rgba(0,0,0,.45); --lg-bright:.92; --lg-pill:rgba(255,255,255,.12);
+}
+:root.lg{ -webkit-tap-highlight-color:transparent; }
+
+/* ---------- material ---------- */
+/* tint + frosted backdrop; inset shadows give the lens its thickness (bright top rim, soft inner glow, darker lower edge) */
+:root.lg :where(.bottomnav, .top .iconbtn, .top .btn.ghost, .search.open, .menu, .toast, .drawer, .modal, .sp-menu, .sp-flash){
+  background:var(--lg-tint);
+  -webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat)) brightness(var(--lg-bright));
+  border:0;
+  box-shadow:
+    inset 0 1px 0 0 var(--lg-rim),
+    inset 0 -1px 0 0 var(--lg-rim-low),
+    inset 0 0 0 .5px var(--lg-rim-low),
+    inset 0 0 22px 0 var(--lg-tint-dim),
+    0 10px 30px -6px var(--lg-drop),
+    0 1px 3px var(--lg-drop);
+}
+/* specular edge: a gradient ring masked to the border; its angle drifts with scroll so the reflection moves */
+:root.lg :where(.bottomnav, .top .iconbtn, .top .btn, .search.open, .menu, .toast, .sp-flash, .sp-big)::before{
+  content:""; position:absolute; inset:0; border-radius:inherit; padding:1.2px; pointer-events:none; z-index:2;
+  background:linear-gradient(var(--lg-angle), var(--lg-rim) 0%, transparent 28%, transparent 62%, var(--lg-rim-low) 82%, var(--lg-rim) 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  transition:background .4s;
+}
+/* touch light: glass lights up where the finger lands */
+:root.lg :where(.bottomnav, .top .iconbtn, .top .btn, .toast, .sp-big)::after{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:-1;
+  background:radial-gradient(circle at var(--px,50%) var(--py,50%), var(--lg-glow), transparent 62%);
+  opacity:0; transition:opacity .45s ease-out;
+}
+:root.lg .lg-pressed::after{ opacity:1; transition-duration:.08s; }
+
+/* ---------- header: floating glass controls over a progressive scroll-edge blur ---------- */
+:root.lg body::before{
+  height:calc(env(safe-area-inset-top,0px) + 74px); pointer-events:none;
+  background:linear-gradient(to bottom, color-mix(in srgb, var(--bg) 82%, transparent), color-mix(in srgb, var(--bg) 0%, transparent));
+  -webkit-backdrop-filter:blur(10px) saturate(160%); backdrop-filter:blur(10px) saturate(160%);
+  -webkit-mask-image:linear-gradient(to bottom, #000 45%, transparent); mask-image:linear-gradient(to bottom, #000 45%, transparent);
+}
+:root.lg .top{ background:transparent; border-bottom:0; view-transition-name:lg-top; }
+:root.lg .top .iconbtn{ position:relative; width:40px; height:40px; isolation:isolate; }
+:root.lg .top .iconbtn > *{ position:relative; z-index:1; }
+:root.lg .top .iconbtn:hover{ background:var(--lg-tint); }
+:root.lg .top .btn{ position:relative; height:38px; border-radius:19px; isolation:isolate; }
+:root.lg .top .btn.primary{
+  background:color-mix(in srgb, var(--accent) 90%, transparent);
+  -webkit-backdrop-filter:blur(12px) saturate(180%); backdrop-filter:blur(12px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7), inset 0 -2px 6px rgba(120,70,0,.18), inset 0 0 14px rgba(255,255,255,.25), 0 8px 22px -6px rgba(180,120,0,.45);
+}
+:root.lg .top .wordmark{ box-shadow:0 6px 18px -4px var(--lg-drop), inset 0 1px 0 rgba(255,255,255,.6); }
+
+/* search: one glass capsule */
+:root.lg .search.open{
+  left:12px !important; right:12px !important; top:calc(100% + 2px) !important; padding:4px !important;
+  border-radius:24px; border-bottom:0 !important; background:var(--lg-tint-strong) !important;
+  animation:lgDrop .5s var(--lg-spring) backwards; transform-origin:top right;
+}
+:root.lg .search.open input{ background:transparent; border:0; height:40px; border-radius:20px; position:relative; z-index:1; }
+:root.lg .search.open button{ background:var(--lg-pill); border:0; border-radius:50%; width:40px; height:40px; position:relative; z-index:1; }
+
+/* account menu: morphs out of the avatar */
+:root.lg .menu{ border-radius:22px; padding:8px; top:50px; background:var(--lg-tint-strong); transform-origin:top right; animation:lgDrop .5s var(--lg-spring) backwards; }
+:root.lg .menu > *{ position:relative; z-index:1; }
+:root.lg .menu a, :root.lg .menu button{ border-radius:14px; }
+:root.lg .menu a:hover, :root.lg .menu button:hover, :root.lg .menu a:active, :root.lg .menu button:active{ background:var(--lg-pill); }
+:root.lg .menu .who, :root.lg .menuhead{ border-color:var(--lg-rim-low); }
+@keyframes lgDrop{ from{ opacity:0; transform:scale(.4); filter:blur(6px); } 40%{ opacity:1; filter:none; } to{ transform:none; } }
+
+/* ---------- tab bar: floating capsule with a liquid selection droplet ---------- */
+:root.lg .bottomnav{
+  left:0; right:0; margin:0 auto; transform:none; width:min(calc(100% - 24px), 500px);
+  bottom:max(12px, calc(env(safe-area-inset-bottom,0px) - 8px)); padding:4px;
+  background:var(--lg-tint); border-radius:999px; border-top:0; isolation:isolate; touch-action:none; user-select:none; -webkit-user-select:none;
+  view-transition-name:lg-tabbar;
+  transition:width .55s var(--lg-spring), padding .4s ease, bottom .4s ease;
+}
+:root.lg .bottomnav a{ position:relative; z-index:1; padding:7px 0 6px; border-radius:999px; gap:1px; font-size:10.5px; font-weight:500; -webkit-touch-callout:none; }
+:root.lg .bottomnav a svg{ transition:transform .45s var(--lg-spring); }
+:root.lg .bottomnav a span{ max-height:16px; transition:max-height .4s ease, opacity .25s ease; overflow:hidden; }
+:root.lg .bottomnav a.cur{ font-weight:650; }
+:root.lg .bottomnav a.lg-near svg{ transform:scale(1.18); }
+:root.lg .lg-pill{
+  position:absolute; z-index:0; left:4px; top:4px; bottom:4px; width:calc((100% - 8px) / var(--n, 5));
+  border-radius:999px; background:var(--lg-pill); pointer-events:none;
+  box-shadow:inset 0 1px 0 var(--lg-rim-low), inset 0 0 0 .5px var(--lg-rim-low);
+  transform:translateX(calc(var(--i, 0) * 100%)) scale(1);
+  transition:transform .6s var(--lg-spring), background .3s, box-shadow .3s, opacity .3s;
+  view-transition-name:lg-pill;
+}
+:root.lg .bottomnav.lg-nocur:not(.lg-drag) .lg-pill{ opacity:0; }
+/* while dragging, the droplet swells past the bar like a lens and lights up */
+:root.lg .bottomnav.lg-drag .lg-pill{
+  transform:translateX(calc(var(--i, 0) * 100%)) scale(1.22, 1.3);
+  transition:transform .22s cubic-bezier(.2,.8,.3,1), background .2s, box-shadow .2s;
+  background:linear-gradient(var(--lg-angle), rgba(255,255,255,.55), rgba(255,255,255,.12) 55%, rgba(255,255,255,.3));
+  box-shadow:inset 0 1px 1px var(--lg-rim), inset 0 -1px 1px var(--lg-rim-low), inset 0 0 12px rgba(255,255,255,.35), inset 0 0 0 .5px var(--lg-rim), 0 6px 20px -4px var(--lg-drop);
+}
+/* scroll down: the bar tucks in; scroll up: it springs back */
+:root.lg.lg-min .bottomnav{ width:min(calc(100% - 110px), 330px); padding:3px; }
+:root.lg.lg-min .bottomnav a span{ max-height:0; opacity:0; }
+:root.lg.lg-min .bottomnav a{ padding:9px 0; }
+:root.lg.lg-min .lg-pill{ left:3px; top:3px; bottom:3px; width:calc((100% - 6px) / var(--n, 5)); }
+:root.lg main{ padding-bottom:110px !important; }
+
+/* ---------- toast: capsule that drops in, then dissolves ---------- */
+:root.lg .toast{
+  border-radius:999px; padding:12px 20px; color:var(--ink); font-weight:600; isolation:isolate;
+  bottom:calc(max(12px, calc(env(safe-area-inset-bottom,0px) - 8px)) + 74px) !important;
+  animation:lgToastIn .6s var(--lg-spring) backwards, lgToastOut .35s ease-in 3.05s forwards;
+}
+@keyframes lgToastIn{ from{ opacity:0; transform:translateX(-50%) translateY(18px) scale(.6); } 35%{ opacity:1; } to{ transform:translateX(-50%); } }
+@keyframes lgToastOut{ to{ opacity:0; transform:translateX(-50%) scale(.85); filter:blur(4px); } }
+
+/* ---------- sheets: modals rise from the bottom as glass ---------- */
+:root.lg .modal-bg{ align-items:end; padding:0 8px max(8px, env(safe-area-inset-bottom,0px)); background:rgba(5,8,20,.28); animation:lgFade .3s ease-out backwards; }
+:root.lg .modal{
+  width:min(540px,100%); border-radius:34px; padding:22px 20px 20px; background:var(--lg-tint-strong);
+  -webkit-backdrop-filter:blur(30px) saturate(180%); backdrop-filter:blur(30px) saturate(180%);
+  max-height:calc(100dvh - env(safe-area-inset-top,0px) - 24px);
+  animation:lgSheet .6s var(--lg-spring) backwards;
+}
+:root.lg .modal::-webkit-scrollbar{ display:none; }
+:root.lg .modal .foot .btn{ height:44px; border-radius:22px; padding:0 20px; }
+@keyframes lgSheet{ from{ transform:translateY(105%); } }
+@keyframes lgFade{ from{ opacity:0; } }
+
+/* ---------- drawer (video page): inset glass panel ---------- */
+:root.lg .drawer{
+  top:calc(env(safe-area-inset-top,0px) + 8px); bottom:calc(env(safe-area-inset-bottom,0px) + 8px); left:8px;
+  border-radius:32px; padding:12px 10px; background:var(--lg-tint-strong);
+  -webkit-backdrop-filter:blur(30px) saturate(180%); backdrop-filter:blur(30px) saturate(180%);
+  animation:lgDrawer .6s var(--lg-spring) backwards;
+}
+:root.lg .drawer a{ border-radius:16px; }
+:root.lg .drawer a:hover, :root.lg .drawer a.cur{ background:var(--lg-pill); }
+:root.lg .drawer-bg{ background:rgba(5,8,20,.25); animation:lgFade .3s ease-out backwards; }
+@keyframes lgDrawer{ from{ transform:translateX(calc(-100% - 12px)); } }
+
+/* ---------- player ---------- */
+:root.lg .sp-menu{
+  --lg-tint:rgba(24,28,48,.42); --lg-rim:rgba(255,255,255,.4); --lg-rim-low:rgba(255,255,255,.12); --lg-tint-dim:rgba(255,255,255,.06); --lg-bright:.9;
+  border-radius:20px; padding:6px; transform-origin:bottom right; animation:lgDrop .45s var(--lg-spring) backwards;
+}
+:root.lg .sp-menu button{ border-radius:13px; position:relative; z-index:1; }
+:root.lg .sp-flash{ --lg-tint:rgba(24,28,48,.35); --lg-rim:rgba(255,255,255,.45); --lg-rim-low:rgba(255,255,255,.14); border-radius:999px; }
+:root.lg .sp-big{
+  background:color-mix(in srgb, var(--accent) 78%, transparent); isolation:isolate;
+  -webkit-backdrop-filter:blur(14px) saturate(180%); backdrop-filter:blur(14px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75), inset 0 -3px 8px rgba(120,70,0,.22), inset 0 0 18px rgba(255,255,255,.3), 0 12px 30px -8px rgba(0,0,0,.6);
+  transition:transform .5s var(--lg-spring);
+}
+:root.lg .sp-big svg{ position:relative; z-index:1; }
+:root.lg .sp-big:active{ transform:translate(-50%,-50%) scale(1.1); }
+
+/* ---------- toggles: knob turns to glass and stretches while held ---------- */
+:root.lg .toggle .sw{ width:44px; height:26px; border-radius:13px; transition:background .3s; }
+:root.lg .toggle .sw::after{ left:2px; top:2px; width:22px; height:22px; background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.2); transition:transform .5s var(--lg-spring), width .3s var(--lg-spring), background .2s, box-shadow .2s; }
+:root.lg .toggle input:checked + .sw::after{ transform:translateX(18px); background:#fff; }
+:root.lg .toggle:active .sw::after{ width:28px; background:rgba(255,255,255,.35); box-shadow:inset 0 1px 1px rgba(255,255,255,.9), inset 0 0 8px rgba(255,255,255,.5), 0 4px 12px rgba(0,0,0,.2); -webkit-backdrop-filter:blur(2px) saturate(200%); backdrop-filter:blur(2px) saturate(200%); }
+:root.lg .toggle:active input:checked + .sw::after{ transform:translateX(12px); }
+
+/* ---------- press response: glass controls swell, everything else gives a little ---------- */
+:root.lg :is(.top .iconbtn, .top .btn){ transition:transform .5s var(--lg-spring); }
+:root.lg :is(.top .iconbtn, .top .btn):active{ transform:scale(1.1); }
+:root.lg main .btn, :root.lg .modal .btn, :root.lg .catchip{ transition:transform .45s var(--lg-spring), filter .2s; }
+:root.lg main .btn:active, :root.lg .modal .btn:active, :root.lg .catchip:active{ transform:scale(.95); }
+
+/* ---------- page-to-page morphs (Safari 18.2+): tab bar and header stay put, the droplet slides ---------- */
+@media (max-width: 860px) and (hover: none) and (prefers-reduced-motion: no-preference){
+  @view-transition{ navigation:auto; }
+}
+::view-transition-group(lg-pill){ animation-duration:.55s; animation-timing-function:var(--lg-spring); }
+::view-transition-old(root), ::view-transition-new(root){ animation-duration:.22s; }
+
+/* ---------- fallbacks ---------- */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  :root.lg{ --lg-tint:var(--lg-tint-strong); }
+}
+@media (prefers-reduced-transparency: reduce){
+  :root.lg :where(.bottomnav, .top .iconbtn, .top .btn.ghost, .search.open, .menu, .toast, .drawer, .modal, .sp-menu, .sp-flash){ background:var(--surface) !important; -webkit-backdrop-filter:none !important; backdrop-filter:none !important; }
+  :root.lg body::before{ background:var(--bg); -webkit-backdrop-filter:none; backdrop-filter:none; -webkit-mask-image:none; mask-image:none; height:env(safe-area-inset-top,0px); }
+}

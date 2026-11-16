@@ -266,14 +266,74 @@ function renderHeader(){
 }
 
 /* ---------- footer ---------- */
+function applyTheme(theme){
+  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+}
+function applyLayout(layout){
+  if (layout === "desktop" || layout === "mobile") document.documentElement.dataset.layout = layout;
+  else delete document.documentElement.dataset.layout;
+}
+const deviceLayout = () => window.matchMedia && window.matchMedia("(max-width: 860px)").matches ? "mobile" : "desktop";
+let preferenceListenersInstalled = false;
+function updatePreferenceButtons(){
+  const button = $("#themeToggle");
+  const layoutButton = $("#siteLayout");
+  if (button){
+    const theme = lsGet("stash:theme") || "system";
+    button.textContent = theme[0].toUpperCase() + theme.slice(1);
+    button.setAttribute("aria-label", "Theme: " + theme);
+    button.setAttribute("aria-pressed", String(theme !== "system"));
+  }
+  if (layoutButton){
+    const layout = lsGet("stash:layout");
+    const current = layout === "desktop" || layout === "mobile" ? layout : deviceLayout();
+    layoutButton.textContent = current[0].toUpperCase() + current.slice(1);
+    layoutButton.setAttribute("aria-label", "Layout: " + current);
+    layoutButton.setAttribute("aria-pressed", String(layout === "desktop" || layout === "mobile"));
+  }
+}
 function renderFooter(){
   const f = $("#sitefoot"); if (!f) return;
   const support = CFG.SUPPORT_EMAIL || "support@thestash.gay";
+  const savedTheme = lsGet("stash:theme") || "system";
+  const savedLayout = lsGet("stash:layout") || "system";
+  applyTheme(savedTheme === "light" || savedTheme === "dark" ? savedTheme : null);
+  applyLayout(savedLayout === "desktop" || savedLayout === "mobile" ? savedLayout : null);
   f.innerHTML = '<div class="foot-in"><div class="foot-brand"><a class="wordmark" href="/">the stash</a><p>Gay adult videos from verified 18+ creators. Watch free, no account needed.</p></div>' +
     '<nav class="foot-cols" aria-label="Footer"><div><h4>Explore</h4><a href="/">Home</a><a href="/channels/">Channels</a><a href="/categories/">Categories</a><a href="/search/">Search</a></div>' +
     '<div><h4>Create</h4><a href="' + (App.profile ? esc(profileUrl(App.profile)) + '&tab=model' : '/login/?mode=signup') + '">Become a verified model</a><a href="/upload/">Upload a video</a><a href="/library/">Your library</a></div>' +
     '<div><h4>Help</h4><a href="mailto:' + esc(support) + '">Contact support</a><a href="mailto:' + esc(support) + '?subject=' + encodeURIComponent("Content removal request") + '">Request content removal</a><a href="/2257/">2257 statement</a></div></nav></div>' +
-    '<div class="foot-base"><span>© ' + new Date().getFullYear() + ' The Stash</span>' + (CFG.ADULT_CONTENT ? '<span>Adults only. Everyone appearing on The Stash was 18 or older when filmed, and is ID-verified. <a href="/2257/">18 U.S.C. 2257 statement</a></span>' : "") + '</div>';
+    '<div class="foot-base"><span>© ' + new Date().getFullYear() + ' The Stash</span>' + (CFG.ADULT_CONTENT ? '<span>Adults only. Everyone appearing on The Stash was 18 or older when filmed, and is ID-verified. <a href="/2257/">18 U.S.C. 2257 statement</a></span>' : "") + '</div>' +
+    '<div class="foot-preferences"><button class="btn sm ghost" id="siteLayout" type="button"></button><button class="btn sm ghost" id="themeToggle" type="button"></button></div>';
+  const themeToggle = $("#themeToggle", f);
+  updatePreferenceButtons();
+  themeToggle.addEventListener("click", () => {
+    const themes = ["system", "light", "dark"];
+    const current = lsGet("stash:theme") || "system";
+    const theme = themes[(themes.indexOf(current) + 1) % themes.length];
+    lsSet("stash:theme", theme);
+    applyTheme(theme === "system" ? null : theme);
+    updatePreferenceButtons();
+  });
+  const layoutToggle = $("#siteLayout", f);
+  layoutToggle.addEventListener("click", () => {
+    const saved = lsGet("stash:layout");
+    const current = saved === "desktop" || saved === "mobile" ? saved : deviceLayout();
+    const layout = current === "mobile" ? "desktop" : "mobile";
+    lsSet("stash:layout", layout);
+    applyLayout(layout);
+    updatePreferenceButtons();
+  });
+  if (!preferenceListenersInstalled && window.matchMedia){
+    const layoutPreference = window.matchMedia("(max-width: 860px)");
+    if (layoutPreference.addEventListener) layoutPreference.addEventListener("change", updatePreferenceButtons);
+    else if (layoutPreference.addListener) layoutPreference.addListener(updatePreferenceButtons);
+    const themePreference = window.matchMedia("(prefers-color-scheme: dark)");
+    if (themePreference.addEventListener) themePreference.addEventListener("change", updatePreferenceButtons);
+    else if (themePreference.addListener) themePreference.addListener(updatePreferenceButtons);
+    preferenceListenersInstalled = true;
+  }
 }
 function ageGate(){
   if (!CFG.ADULT_CONTENT || lsGet("stash:age-ok") === "1" || document.body.dataset.page === "none") return;
@@ -480,64 +540,10 @@ function cropImage(file, W, H){
 }
 /* What kind of video a file is. Browsers leave file.type empty for some formats, so fall back to the extension. */
 const VIDEO_EXT = { mp4:"video/mp4", m4v:"video/x-m4v", mov:"video/quicktime", qt:"video/quicktime", webm:"video/webm", mkv:"video/x-matroska", avi:"video/x-msvideo", wmv:"video/x-ms-wmv", flv:"video/x-flv", "3gp":"video/3gpp", "3g2":"video/3gpp2", mpg:"video/mpeg", mpeg:"video/mpeg", m2ts:"video/mp2t", mts:"video/mp2t", ts:"video/mp2t", ogv:"video/ogg", vob:"video/dvd", f4v:"video/x-f4v", asf:"video/x-ms-asf", hevc:"video/hevc" };
-const VIDEO_ACCEPT = "video/*," + Object.keys(VIDEO_EXT).map(e => "." + e).join(",");
+const VIDEO_ACCEPT = "*/*";
 function videoType(file){
   const name = String(file && file.name || "").toLowerCase(), ext = name.includes(".") ? name.split(".").pop() : "";
-  return VIDEO_EXT[ext] || (file && /^video\//.test(file.type) ? file.type : null);
-}
-const videoExt = type => (Object.entries(VIDEO_EXT).find(([, t]) => t === type) || ["mp4"])[0];
-async function convertVideoToMp4(file, onProgress){
-  if (!window.FFmpegWASM) throw new Error("The video converter didn't load. Check your connection and reload the page.");
-  const { FFmpeg } = window.FFmpegWASM;
-  const ffmpeg = new FFmpeg();
-  let log = "";
-  let classWorkerURL = "", coreURL = "", wasmURL = "";
-  ffmpeg.on("log", ({ message }) => { log = (log + "\n" + message).slice(-2000); });
-  ffmpeg.on("progress", ({ progress }) => { if (onProgress && Number.isFinite(progress)) onProgress(Math.max(0, Math.min(1, progress))); });
-  const extension = (String(file.name || "").split(".").pop() || "input").toLowerCase().replace(/[^a-z0-9]/g, "") || "input";
-  const inputName = "input." + extension;
-  try {
-    const coreUrl = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
-    const workerBase = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm";
-    const workerResponse = await fetch(workerBase + "/worker.js");
-    if (!workerResponse.ok) throw new Error("The video converter worker couldn't be downloaded.");
-    // Workers must be same-origin, so blob the module worker and point its imports at the CDN.
-    const workerSource = (await workerResponse.text()).replace(/from ["']\.\/(const|errors)\.js["']/g, (_match, name) => `from "${workerBase}/${name}.js"`);
-    classWorkerURL = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
-    const makeBlobURL = async (url, type) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("The video converter couldn't be downloaded.");
-      return URL.createObjectURL(new Blob([await response.arrayBuffer()], { type }));
-    };
-    await ffmpeg.load({
-      classWorkerURL,
-      coreURL: coreURL = await makeBlobURL(coreUrl + "/ffmpeg-core.js", "text/javascript"),
-      wasmURL: wasmURL = await makeBlobURL(coreUrl + "/ffmpeg-core.wasm", "application/wasm")
-    });
-    URL.revokeObjectURL(coreURL); coreURL = "";
-    URL.revokeObjectURL(wasmURL); wasmURL = "";
-    await ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
-    await ffmpeg.exec([
-      "-i", inputName, "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264",
-      "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-      "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:a", "aac", "-b:a", "128k",
-      "-movflags", "+faststart", "output.mp4"
-    ]);
-    const data = await ffmpeg.readFile("output.mp4");
-    if (typeof data === "string" || !data.length) throw new Error("The converted MP4 file was empty.");
-    const baseName = String(file.name || "video").replace(/\.[^.]+$/, "") || "video";
-    return new File([data], baseName + ".mp4", { type: "video/mp4" });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(/memory|allocation|out of bounds/i.test(detail + log)
-      ? "This video is too large to convert in this browser. Try a smaller file or convert it to MP4 (H.264/AAC) before uploading."
-      : "This video couldn't be converted to MP4 in your browser. Try another file or convert it to MP4 (H.264/AAC) first." + (detail ? " " + detail : ""));
-  } finally {
-    ffmpeg.terminate();
-    if (classWorkerURL) URL.revokeObjectURL(classWorkerURL);
-    if (coreURL) URL.revokeObjectURL(coreURL);
-    if (wasmURL) URL.revokeObjectURL(wasmURL);
-  }
+  return VIDEO_EXT[ext] || (file && (/^video\//.test(file.type) || ext) ? (file.type || "application/octet-stream") : null);
 }
 async function deleteStreamVideo(uid){
   const { data } = await sb.auth.getSession();
@@ -949,6 +955,6 @@ App.start = async function(render){
 Object.assign(App, { $, esc, colorFor, initials, timeAgo, fmtDur, fmtCount, plural, safeUrl, safeNext, param, pub, USER_RE, must, errText, toast,
   openModal, closeModal, confirmModal, avatar, chAvatar, thumbInner, vcard, hydrate, profilesByIds, PROFILE_COLS, videosByIds, watchUrl, profileUrl,
   badges, displayName, BANNERS, presetUrl, bannerHTML, frameGrabber, anniversary, ordinal, mountPlayer, importFromX, xIdentity, linkX, lsGet, lsSet,
-  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, convertVideoToMp4, deleteStreamVideo, uuid, videoType, videoExt, VIDEO_ACCEPT, frameFromVideo, clock });
+  renderHeader, mountAuth, openAuthModal, strength, cropImage, videoMeta, uploadWithProgress, uploadResumable, deleteStreamVideo, uuid, videoType, VIDEO_ACCEPT, frameFromVideo, clock });
 window.Stash = App;
 })();
