@@ -27,27 +27,37 @@
   new MutationObserver(update).observe(root, { attributes:true, attributeFilter:["data-layout"] });
 
   /* ---------- tab bar lens ----------
-     Layers inside the bar, bottom to top: resting pill, the real tabs (one evenodd clip punches the lens out of them),
-     a blue copy of the tabs magnified and clipped to the lens, then the lens rim/gloss.
-     Per frame only transforms, two clip-paths and the lens size change — no layout of the tabs, no per-tab work. */
+     In the bar: the resting pill, then the real tabs (one evenodd clip punches the lens out of them).
+     In a fixed overlay exactly over the bar (outside it, so the bar's own CSS can't reach in): the refraction layer,
+     a blue copy of the tabs, then the lens rim/gloss. All three are magnified about the lens centre and clipped to it.
+     Safari can't distort a backdrop (backdrop-filter: url() is Chromium-only), so refraction comes from a hidden,
+     inert copy of the page: while the lens is up it is shown through the lens, aligned to the page and magnified,
+     so what's under the lens bends and swells like it would through a drop of glass.
+     Per frame only transforms, clip-paths and the lens size change — no layout, no per-tab work. */
   function initTabbar(nav){
-    let lens, rim, base, tint, tabs = [], cur = -1, L = null, building = false;
+    let lens, rim, base, tint, ov, refract, tabs = [], cur = -1, L = null, building = false;
     // springs: x = lens centre (px), p = 0 resting pill .. 1 popped lens
     const s = { x:0, vx:0, tx:0, p:0, vp:0, tp:0 };
-    let raf = 0, last = 0, drag = null, fromPointer = false, navTimer = 0, sinkTimer = 0;
+    let raf = 0, last = 0, drag = null, fromPointer = false, sinkTimer = 0;
 
     function build(){
       const loose = [...nav.querySelectorAll(":scope > a")];
       if (!loose.length && base && base.isConnected) { tabs = [...base.children]; return tabs.length > 0; }
       if (!loose.length) return false;
       building = true;
-      lens = document.createElement("span"); lens.className = "lg-lens";
+      if (!ov){
+        ov = document.createElement("div"); ov.className = "lg-overlay";
+        refract = document.createElement("div"); refract.className = "lg-refract";
+        tint = document.createElement("div"); tint.className = "lg-tint";
+        rim = document.createElement("span"); rim.className = "lg-rim";
+        ov.setAttribute("aria-hidden", "true");
+        ov.append(refract, tint, rim);
+        document.body.append(ov);
+      }
+      lens = document.createElement("span"); lens.className = "lg-lens"; lens.setAttribute("aria-hidden", "true");
       base = document.createElement("div"); base.className = "lg-base";
-      tint = document.createElement("div"); tint.className = "lg-tint";
-      rim = document.createElement("span"); rim.className = "lg-rim";
-      [lens, tint, rim].forEach(el => el.setAttribute("aria-hidden", "true"));
       base.append(...loose);
-      nav.append(lens, base, tint, rim);
+      nav.append(lens, base);
       tabs = loose;
       tint.innerHTML = tabs.map(a => '<span class="lg-ti">' + a.innerHTML + "</span>").join("");
       nav.classList.add("lg-live");
@@ -55,9 +65,60 @@
       return true;
     }
     function measure(){
-      const bx = base.offsetLeft, by = base.offsetTop;
-      L = { w:nav.clientWidth, h:nav.clientHeight, bx, by, c:tabs.map(a => bx + a.offsetLeft + a.offsetWidth / 2), tw:tabs[0].offsetWidth, th:tabs[0].offsetHeight };
-      cur = tabs.findIndex(a => a.classList.contains("cur"));
+      const bx = base.offsetLeft, by = base.offsetTop, r = nav.getBoundingClientRect();
+      L = { w:nav.clientWidth, h:nav.clientHeight, bx, by, left:r.left, top:r.top, c:tabs.map(a => bx + a.offsetLeft + a.offsetWidth / 2), tw:tabs[0].offsetWidth, th:tabs[0].offsetHeight };
+      ov.style.cssText = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+      cur = currentTab();
+    }
+    // the tab for this page: the one core.js marked, else the one whose link is this URL (e.g. "You" on your own profile)
+    function currentTab(){
+      const marked = tabs.findIndex(a => a.classList.contains("cur"));
+      if (marked >= 0) return marked;
+      const here = new URLSearchParams(location.search);
+      return tabs.findIndex(a => {
+        const u = new URL(a.href, location.href);
+        if (u.origin !== location.origin || u.pathname !== location.pathname) return false;
+        for (const [k, v] of u.searchParams) if (here.get(k) !== v) return false;
+        return true;
+      });
+    }
+
+    /* page copy for refraction: rebuilt on idle after the page changes, so pressing the bar never pays for it */
+    const pageEl = () => document.querySelector("body > .shell") || document.querySelector("main");
+    let copy = null, copyOf = null, dirty = true, copyTimer = 0, org = null;
+    function makeCopy(){
+      const src = pageEl(); if (!src || !refract) return;
+      const c = src.cloneNode(true);
+      c.querySelectorAll("[id]").forEach(el => el.removeAttribute("id"));
+      c.removeAttribute("id");
+      c.querySelectorAll("video").forEach(v => { v.removeAttribute("src"); v.removeAttribute("autoplay"); v.preload = "none"; v.querySelectorAll("source").forEach(x => x.remove()); });
+      c.querySelectorAll("iframe, script, noscript").forEach(el => el.remove());
+      // images the page already has decode from cache; ones it hasn't loaded yet stay lazy so nothing extra downloads
+      const imgs = src.querySelectorAll("img"), cimgs = c.querySelectorAll("img");
+      cimgs.forEach((im, i) => { if (imgs[i] && imgs[i].complete) im.loading = "eager"; });
+      c.setAttribute("inert", ""); c.classList.add("lg-copy");
+      refract.replaceChildren(c);
+      copy = c; copyOf = src; dirty = false;
+    }
+    function scheduleCopy(){
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => {
+        const go = () => { if (on() && !drag && s.p < .01) makeCopy(); else scheduleCopy(); };
+        if (window.requestIdleCallback) requestIdleCallback(go, { timeout:1500 }); else go();
+      }, 450);
+    }
+    function watchPage(){
+      const src = pageEl(); if (!src) return;
+      new MutationObserver(() => { dirty = true; scheduleCopy(); }).observe(src, { childList:true, subtree:true, characterData:true, attributes:true, attributeFilter:["src", "srcset", "hidden"] });
+      addEventListener("load", () => { dirty = true; scheduleCopy(); });
+      scheduleCopy();
+    }
+    function alignCopy(){
+      if (!copy) return;
+      if (dirty || copyOf !== pageEl()) makeCopy();
+      const r = copyOf.getBoundingClientRect();
+      org = { x:r.left, y:r.top, sy:scrollY };
+      copy.style.width = r.width + "px";
     }
     const nearest = x => L.c.reduce((b, c, i) => Math.abs(c - x) < Math.abs(L.c[b] - x) ? i : b, 0);
     const clampX = x => Math.min(L.c[L.c.length - 1], Math.max(L.c[0], x));
@@ -76,15 +137,24 @@
       const x = s.x - w / 2, y = L.h / 2 - h / 2;
       const shown = cur >= 0 || p > .01;
       const box = `translate3d(${f(x)}px,${f(y)}px,0)`;
-      lens.style.cssText = `width:${f(w)}px;height:${f(h)}px;transform:${box};opacity:${shown ? f(Math.max(0, 1 - p * 1.8)) : 0}`;
+      // the resting pill only ever belongs to a current tab; with none, the lens appears clear with no grey flash
+      lens.style.cssText = `width:${f(w)}px;height:${f(h)}px;transform:${box};opacity:${cur >= 0 ? f(Math.max(0, 1 - p * 1.8)) : 0}`;
       rim.style.cssText = `width:${f(w)}px;height:${f(h)}px;transform:${box};opacity:${f(Math.min(1, p * 1.6))}`;
+      const m = 1 + .12 * pp;
+      // refraction: the page copy, lined up with the real page, then magnified about the lens centre
+      if (copy && org && p > .01){
+        const mr = 1 + .2 * pp;   // content behind bends a little harder than the icons sitting in the glass
+        const Px = L.left + s.x, Py = L.top + L.h / 2, Bx = L.left + x, By = L.top + y;
+        const ox = org.x, oy = org.y - (scrollY - org.sy);
+        refract.style.cssText = `visibility:visible;width:${f(w)}px;height:${f(h)}px;transform:${box};opacity:${f(Math.min(1, p * 2.2))}`;
+        copy.style.transform = `translate3d(${f(Px * (1 - mr) + mr * ox - Bx)}px,${f(Py * (1 - mr) + mr * oy - By)}px,0) scale(${f(mr * 1000) / 1000})`;
+      } else refract.style.visibility = "hidden";
       if (!shown){ tint.style.visibility = "hidden"; base.style.clipPath = ""; return; }
-      // blue copy: magnified about the lens centre; its clip is in pre-scale coordinates so it lands exactly on the lens
-      const m = 1 + .12 * pp, cw = w / m, ch = h / m, cx = s.x - cw / 2, cy = L.h / 2 - ch / 2;
+      // blue copy, clipped exactly to the lens. Each icon swells about its own centre (not the lens centre), so nothing
+      // near the lens edge gets pushed out of view — that was what chopped letters off ("Upl ad")
       tint.style.visibility = "visible";
-      tint.style.transformOrigin = `${f(s.x)}px ${f(L.h / 2)}px`;
-      tint.style.transform = p > .005 ? `scale(${f(m * 1000) / 1000})` : "none";
-      tint.style.clipPath = `inset(${f(cy)}px ${f(L.w - cx - cw)}px ${f(L.h - cy - ch)}px ${f(cx)}px round ${f(Math.min(cw, ch) / 2)}px)`;
+      tint.style.setProperty("--m", p > .005 ? f(m * 1000) / 1000 : 1);
+      tint.style.clipPath = `inset(${f(y)}px ${f(L.w - x - w)}px ${f(L.h - y - h)}px ${f(x)}px round ${f(Math.min(w, h) / 2)}px)`;
       // the plain tabs get one hole the shape of the lens, so only the blue copy shows inside it
       base.style.clipPath = `path(evenodd,"M-60 -60H${L.w + 60}V${L.h + 60}H-60Z${capsule(x - L.bx, y - L.by, w, h)}")`;
     }
@@ -121,6 +191,7 @@
     };
     const end = e => {
       if (!drag || drag.id !== e.pointerId) return;
+      const moved = drag.moved;
       drag = null;
       removeEventListener("pointermove", move); removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
       if (e.type === "pointercancel"){ s.tx = L.c[Math.max(cur, 0)]; s.tp = 0; kick(); return; }
@@ -128,10 +199,13 @@
       // the lens holds over the chosen tab for a beat, then sinks back into the pill
       clearTimeout(sinkTimer); sinkTimer = setTimeout(() => { s.tp = 0; kick(); }, 260);
       fromPointer = true; setTimeout(() => { fromPointer = false; }, 500);
-      if (i !== cur){
-        const href = tabs[i].href; cur = i;
-        clearTimeout(navTimer); navTimer = setTimeout(() => { location.href = href; }, 150);
+      if (i === cur){
+        // the tab you're already on never reloads; tapping it scrolls back to the top, like iOS
+        if (!moved && scrollY > 0) scrollTo({ top:0, behavior:still.matches ? "auto" : "smooth" });
+        return;
       }
+      // go the moment the finger lifts; the next page paints its pill on the new tab (and a snapshot, below)
+      cur = i; location.href = tabs[i].href;
     };
     nav.addEventListener("pointerdown", e => {
       if (!on() || !e.isPrimary || !L) return;
@@ -139,19 +213,21 @@
       const r = nav.getBoundingClientRect();
       drag = { id:e.pointerId, x0:e.clientX, left:r.left, moved:false };
       if (cur < 0 && s.p < .02) s.x = clampX(e.clientX - r.left);   // no current tab: the lens appears under the finger
+      if (s.p < .01) alignCopy();
       s.tp = 1; s.tx = clampX(e.clientX - r.left); kick();
       addEventListener("pointermove", move, { passive:true }); addEventListener("pointerup", end); addEventListener("pointercancel", end);
     });
     // pointer taps navigate from pointerup; keyboard activation (detail 0) still uses the normal click
     nav.addEventListener("click", e => { if (on() && (fromPointer || e.detail > 0)) e.preventDefault(); }, true);
     nav.addEventListener("contextmenu", e => { if (on()) e.preventDefault(); });
-    addEventListener("pageshow", e => { if (e.persisted){ clearTimeout(navTimer); clearTimeout(sinkTimer); drag = null; reset(); } });
+    addEventListener("pageshow", e => { if (e.persisted){ clearTimeout(sinkTimer); drag = null; reset(); } });
     addEventListener("resize", () => { if (on() && L){ measure(); s.x = s.tx = L.c[nearest(s.tx)]; paint(); } });
 
     // renderHeader replaces the bar's contents (e.g. once sign-in resolves); re-wrap the new tabs
     new MutationObserver(() => { if (!building && nav.querySelector(":scope > a")) reset(); }).observe(nav, { childList:true });
     onToggle = reset;
     reset();
+    watchPage();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (on() && L){ measure(); paint(); } });
     // warm the cache for the other tabs so switching is quick
     const warm = () => tabs.forEach(a => { if (!a.classList.contains("cur")) fetch(a.href, { credentials:"same-origin" }).catch(() => {}); });
@@ -172,6 +248,130 @@
   // iOS Safari only applies :active when a touch listener exists
   document.addEventListener("touchstart", () => {}, { passive:true });
 
-  function init(){ const nav = document.getElementById("bottomnav"); if (nav) initTabbar(nav); }
+  /* ---------- search: the field grows out of the search button, a ✕ splits off, closing reverses it ----------
+     Takes over core.js's dropdown toggle only while the glass is on; the form, input and submit are untouched. */
+  function initSearch(){
+    const top = document.getElementById("top"), box = document.getElementById("searchBox"), tog = document.getElementById("searchToggle");
+    if (!top || !box || !tog) return;
+    const input = box.querySelector("input");
+    const x = document.createElement("button");
+    x.type = "button"; x.className = "lg-search-x"; x.setAttribute("aria-label", "Close search");
+    x.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    top.append(x);
+    const searching = () => root.classList.contains("lg-searching");
+    let from = "", closeTimer = 0;
+    // the search button's circle, expressed as a clip of the full-size field
+    function buttonClip(){
+      const b = tog.getBoundingClientRect(), f = box.getBoundingClientRect();
+      return `inset(${b.top - f.top}px ${f.right - b.right}px ${f.bottom - b.bottom}px ${b.left - f.left}px round 999px)`;
+    }
+    function open(){
+      clearTimeout(closeTimer);
+      box.classList.add("open");
+      box.style.transition = "none";
+      from = buttonClip(); box.style.clipPath = from;
+      box.getBoundingClientRect();   // commit the start frame so the clip animates from the button
+      box.style.transition = ""; box.style.clipPath = "inset(0 round 999px)";
+      root.classList.add("lg-searching");
+      // focus inside the tap so iOS raises the keyboard; no scroll jump for the sticky header
+      input.focus({ preventScroll:true });
+    }
+    function close(){
+      if (!searching()) return;
+      input.blur();
+      root.classList.remove("lg-searching");
+      box.style.clipPath = from || buttonClip();
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => { if (!searching()){ box.classList.remove("open"); box.style.clipPath = ""; } }, 430);
+    }
+    document.addEventListener("click", e => {
+      if (!on() || !e.target.closest || !e.target.closest("#searchToggle")) return;
+      e.preventDefault(); e.stopImmediatePropagation();   // replaces core.js's plain dropdown toggle
+      searching() ? close() : open();
+    }, true);
+    x.addEventListener("click", close);
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && searching()) close(); });
+    const prev = onToggle;
+    onToggle = () => { prev(); if (!on() && searching()){ root.classList.remove("lg-searching"); box.style.clipPath = ""; } };
+  }
+
+  /* ---------- toggles: hold for the glass lens, drag to switch ---------- */
+  function initToggles(){
+    let t = null;
+    document.addEventListener("pointerdown", e => {
+      if (!on() || !e.isPrimary) return;
+      const lab = e.target.closest && e.target.closest(".toggle"); if (!lab) return;
+      const input = lab.querySelector("input"), sw = lab.querySelector(".sw");
+      if (!input || !sw || input.disabled) return;
+      t = { lab, input, sw, id:e.pointerId, x0:e.clientX, start:input.checked ? 20 : 0, moved:false };
+      clearTimeout(lab._lgHold); lab.classList.add("lg-held");
+    }, { passive:true });
+    addEventListener("pointermove", e => {
+      if (!t || e.pointerId !== t.id) return;
+      const dx = e.clientX - t.x0;
+      if (!t.moved && Math.abs(dx) < 4) return;
+      t.moved = true; t.lab.classList.add("lg-dragging");
+      const kx = Math.max(-4, Math.min(24, t.start + dx));   // a little give past each end
+      t.sw.style.setProperty("--kx", kx + "px");
+      t.lab.classList.toggle("lg-preview-on", kx > 10);
+    }, { passive:true });
+    const end = e => {
+      if (!t || e.pointerId !== t.id) return;
+      const { lab, input, sw, moved } = t; t = null;
+      const want = lab.classList.contains("lg-preview-on");
+      lab.classList.remove("lg-dragging", "lg-preview-on"); sw.style.removeProperty("--kx");
+      if (moved && e.type === "pointerup"){
+        // a drag decides the state itself; swallow the click the label would send so it doesn't flip it back
+        lab._lgSkip = true; setTimeout(() => { lab._lgSkip = false; }, 400);
+        if (input.checked !== want){ input.checked = want; input.dispatchEvent(new Event("change", { bubbles:true })); }
+      }
+      // the lens rides across with the knob, then shrinks back to the white pill
+      lab._lgHold = setTimeout(() => lab.classList.remove("lg-held"), 230);
+    };
+    addEventListener("pointerup", end); addEventListener("pointercancel", end);
+    document.addEventListener("click", e => {
+      const lab = e.target.closest && e.target.closest(".toggle");
+      if (lab && lab._lgSkip){ lab._lgSkip = false; e.preventDefault(); }
+    }, true);
+  }
+
+  /* ---------- instant pages: show the last render of a page straight away, swap in the live one when it lands ----------
+     On leaving a page its content is kept in sessionStorage; coming back (e.g. via the tab bar) paints that copy at
+     once instead of a spinner. It's inert until the page's own render replaces it, usually a moment later. */
+  const SNAP_PAGES = ["home", "channels", "subscriptions", "categories", "category", "library", "profile", "search", "playlist"];
+  const snapKey = () => "stash:snap:" + location.pathname + location.search;
+  function saveSnap(){
+    if (!on()) return;
+    const el = document.getElementById("app");
+    if (!el || SNAP_PAGES.indexOf(document.body.dataset.page) < 0 || el.querySelector(":scope > .loading, :scope > .lg-snap")) return;
+    const c = el.cloneNode(true);
+    c.querySelectorAll("video, iframe, script, .sp").forEach(n => n.remove());
+    const html = c.innerHTML;
+    if (!html.trim() || html.length > 300000) return;
+    try {
+      const key = snapKey(), keys = JSON.parse(sessionStorage.getItem("stash:snapkeys") || "[]").filter(k => k !== key);
+      keys.push(key);
+      while (keys.length > 12) sessionStorage.removeItem(keys.shift());
+      sessionStorage.setItem(key, html); sessionStorage.setItem("stash:snapkeys", JSON.stringify(keys));
+    } catch(e){}
+  }
+  function restoreSnap(){
+    if (!on()) return;
+    const el = document.getElementById("app");
+    if (!el || el.children.length !== 1 || !el.querySelector(":scope > .loading")) return;
+    let html = null; try { html = sessionStorage.getItem(snapKey()); } catch(e){}
+    if (html) el.innerHTML = '<div class="lg-snap" inert aria-hidden="true">' + html + "</div>";
+  }
+  addEventListener("pagehide", saveSnap);
+
+  function init(){
+    restoreSnap();
+    initToggles();
+    const nav = document.getElementById("bottomnav"); if (nav) initTabbar(nav);
+    // the header is built by core.js after this runs; wait for its search button
+    const top = document.getElementById("top");
+    if (document.getElementById("searchToggle")) initSearch();
+    else if (top) { const mo = new MutationObserver(() => { if (document.getElementById("searchToggle")){ mo.disconnect(); initSearch(); } }); mo.observe(top, { childList:true }); }
+  }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();

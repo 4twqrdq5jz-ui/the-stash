@@ -75,14 +75,37 @@
 }
 :root.lg .top .wordmark{ box-shadow:0 6px 18px -4px var(--lg-drop), inset 0 1px 0 rgba(255,255,255,.6); }
 
-/* search: one glass capsule */
+/* search, as on iOS: the field grows out of the search button across the header (glass.js animates its clip from
+   the button's circle to the full capsule), a round ✕ splits off its right end, the header items fade and the tab bar
+   drops away. Closing reverses it; the ✕ swells white under the finger first. */
 :root.lg .search.open{
-  left:12px !important; right:12px !important; top:calc(100% + 2px) !important; padding:4px !important;
-  border-radius:24px; border-bottom:0 !important; background:var(--lg-tint-strong) !important;
-  animation:lgDrop .5s var(--lg-spring) backwards; transform-origin:top right;
+  display:flex !important; position:absolute !important; left:12px !important; right:64px !important; top:calc(50% - 22px) !important;
+  height:44px; max-width:none !important; margin:0; padding:0 6px 0 2px !important; border:0 !important;
+  border-radius:999px; background:var(--lg-tint-strong) !important;
+  -webkit-backdrop-filter:blur(20px) saturate(180%); backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 .5px 0 var(--lg-rim), inset 0 0 0 .5px var(--lg-rim-low), 0 10px 26px -10px var(--lg-drop);
+  /* iOS-style ease-out: the field visibly travels out of the button over ~⅓s, then settles (the spring finished in ~100ms and read as a jump) */
+  transition:clip-path .5s cubic-bezier(.32,.72,0,1);
 }
-:root.lg .search.open input{ background:transparent; border:0; height:40px; border-radius:20px; position:relative; z-index:1; }
-:root.lg .search.open button{ background:var(--lg-pill); border:0; border-radius:50%; width:40px; height:40px; position:relative; z-index:1; }
+/* 16px stops iOS zooming the page when the field takes focus */
+:root.lg .search.open input{ order:1; flex:1; min-width:0; height:44px; padding:0 8px 0 2px; background:transparent; border:0; border-radius:0; font-size:16px; position:relative; z-index:1; outline:none; }
+:root.lg .search.open input::-webkit-search-cancel-button{ -webkit-appearance:none; }
+:root.lg .search.open button{ order:0; flex:none; width:38px; height:44px; background:transparent; border:0; border-radius:50%; color:var(--muted); position:relative; z-index:1; }
+.lg-search-x{ display:none; }
+:root.lg .lg-search-x{
+  display:grid; place-items:center; position:absolute; right:12px; top:calc(50% - 22px); width:44px; height:44px; border-radius:50%;
+  color:var(--ink); background:var(--lg-tint-strong);
+  -webkit-backdrop-filter:blur(20px) saturate(180%); backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 .5px 0 var(--lg-rim), inset 0 0 0 .5px var(--lg-rim-low), 0 10px 26px -10px var(--lg-drop);
+  opacity:0; transform:translateX(-30px) scale(.45); pointer-events:none;
+  transition:transform .5s var(--lg-spring), opacity .18s ease, background .2s ease, color .2s ease;
+}
+:root.lg.lg-searching .lg-search-x{ opacity:1; transform:none; pointer-events:auto; transition-delay:.08s, .08s, 0s, 0s; }
+:root.lg.lg-searching .lg-search-x:active{ transform:scale(1.18); background:#fff; color:#000; transition-delay:0s; }
+:root.lg .top > .wordmark, :root.lg .top > .top-actions, :root.lg .top > .hamb{ transition:opacity .22s ease, scale .45s var(--lg-spring); }
+:root.lg.lg-searching .top > .wordmark, :root.lg.lg-searching .top > .top-actions, :root.lg.lg-searching .top > .hamb{ opacity:0; scale:.9; pointer-events:none; }
+:root.lg .bottomnav, :root.lg .lg-overlay{ transition:translate .5s var(--lg-spring), opacity .25s ease; }
+:root.lg.lg-searching .bottomnav, :root.lg.lg-searching .lg-overlay{ translate:0 calc(100% + 48px); opacity:0; pointer-events:none; }
 
 /* account menu: morphs out of the avatar */
 :root.lg .menu{ border-radius:22px; padding:8px; top:50px; background:var(--lg-tint-strong); transform-origin:top right; animation:lgDrop .5s var(--lg-spring) backwards; }
@@ -104,14 +127,22 @@
 }
 :root.lg .bottomnav a, :root.lg .lg-ti{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 0 5px; font-size:10px; font-weight:600; letter-spacing:.01em; line-height:1.2; }
 :root.lg .bottomnav a svg, :root.lg .lg-ti svg{ width:25px; height:25px; flex:none; }
+/* inside the lens each blue icon swells about its own centre (glass.js sets --m) */
+:root.lg .lg-ti{ transform:scale(var(--m, 1)); }
 :root.lg .bottomnav a{ position:relative; color:var(--ink); -webkit-touch-callout:none; }
 :root.lg .bottomnav a.cur{ color:var(--focus); }
 /* once glass.js runs, the blue comes only from the lens layer, so the static "current" colour steps aside */
 :root.lg .bottomnav.lg-live a.cur{ color:var(--ink); }
 :root.lg .lg-base{ position:relative; z-index:1; flex:1; min-width:0; display:flex; }
 /* no will-change here: a pre-promoted layer gets rasterised once and then scaled, which is what blurred the icons */
+/* lens layers live in a fixed overlay laid exactly over the bar, just above it */
+.lg-overlay{ display:none; }
+:root.lg .lg-overlay{ display:block; position:fixed; z-index:21; pointer-events:none; contain:layout style; }
 :root.lg .lg-tint{ position:absolute; inset:0; z-index:2; display:flex; padding:4px; color:var(--focus); pointer-events:none; visibility:hidden; }
-:root.lg .lg-lens, :root.lg .lg-rim{ position:absolute; left:0; top:0; border-radius:999px; pointer-events:none; backface-visibility:hidden; }
+:root.lg .lg-lens, :root.lg .lg-rim, :root.lg .lg-refract{ position:absolute; left:0; top:0; border-radius:999px; pointer-events:none; backface-visibility:hidden; }
+/* refraction: the page copy seen through the lens. clip-path (not overflow+radius) so Safari clips the composited copy */
+:root.lg .lg-refract{ z-index:1; visibility:hidden; overflow:hidden; clip-path:inset(0 round 999px); background:var(--bg); }
+:root.lg .lg-copy{ position:absolute; left:0; top:0; margin:0; transform-origin:0 0; will-change:transform; pointer-events:none; }
 /* resting pill under the current tab */
 :root.lg .lg-lens{ z-index:0; background:var(--lg-nav-pill); }
 /* popped lens: clear, bright rim, soft gloss, chromatic fringe at the edges */
@@ -134,6 +165,8 @@
   mask:linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
 :root.lg main{ padding-bottom:110px !important; }
+/* last render of the page, shown until the live one replaces it (glass.js) */
+.lg-snap{ display:contents; }
 
 /* ---------- toast: capsule that drops in, then dissolves ---------- */
 :root.lg .toast{
@@ -185,12 +218,34 @@
 :root.lg .sp-big svg{ position:relative; z-index:1; }
 :root.lg .sp-big:active{ transform:translate(-50%,-50%) scale(1.1); }
 
-/* ---------- toggles: knob turns to glass and stretches while held ---------- */
-:root.lg .toggle .sw{ width:44px; height:26px; border-radius:13px; transition:background .3s; }
-:root.lg .toggle .sw::after{ left:2px; top:2px; width:22px; height:22px; background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.2); transition:transform .5s var(--lg-spring), width .3s var(--lg-spring), background .2s, box-shadow .2s; }
-:root.lg .toggle input:checked + .sw::after{ transform:translateX(18px); background:#fff; }
-:root.lg .toggle:active .sw::after{ width:28px; background:rgba(255,255,255,.35); box-shadow:inset 0 1px 1px rgba(255,255,255,.9), inset 0 0 8px rgba(255,255,255,.5), 0 4px 12px rgba(0,0,0,.2); -webkit-backdrop-filter:blur(2px) saturate(200%); backdrop-filter:blur(2px) saturate(200%); }
-:root.lg .toggle:active input:checked + .sw::after{ transform:translateX(12px); }
+/* ---------- toggles, as in iOS 27 ----------
+   A white pill knob on a capsule track. Pressed, the knob pops into a clear glass lens that spills past the track;
+   it can be dragged (glass.js sets --kx and previews the colour), slides across with a spring, holds for a beat, then
+   shrinks back to the white pill. */
+:root.lg{ --lg-sw-off:rgba(120,120,128,.24); --lg-sw-on:#34C759; }
+@media (prefers-color-scheme: dark){ :root.lg:not([data-theme="light"]){ --lg-sw-off:rgba(120,120,128,.36); --lg-sw-on:#30D158; } }
+:root.lg[data-theme="dark"]{ --lg-sw-off:rgba(120,120,128,.36); --lg-sw-on:#30D158; }
+:root.lg .toggle{ touch-action:pan-y; -webkit-user-select:none; user-select:none; }
+:root.lg .toggle .sw{ flex:none; width:62px; height:28px; border-radius:14px; background:var(--lg-sw-off); transition:background .3s ease; }
+:root.lg .toggle input:checked + .sw{ background:var(--lg-sw-on); }
+/* while dragging, the track shows where the knob would land */
+:root.lg .toggle.lg-dragging input + .sw{ background:var(--lg-sw-off); }
+:root.lg .toggle.lg-dragging.lg-preview-on input + .sw{ background:var(--lg-sw-on); }
+:root.lg .toggle .sw::after{
+  --x:0px; left:2px; top:2px; width:38px; height:24px; border-radius:12px; background:#fff;
+  box-shadow:0 2px 5px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.04);
+  transform:translateX(var(--kx, var(--x))) scale(1);
+  transition:transform .55s var(--lg-spring), background .25s ease, box-shadow .25s ease;
+}
+:root.lg .toggle input:checked + .sw::after{ --x:20px; background:#fff; }
+/* held: the knob becomes a clear lens, bigger than the track, with a bright rim */
+:root.lg .toggle.lg-held input + .sw::after{
+  transform:translateX(var(--kx, var(--x))) scale(1.5, 1.62);
+  background:radial-gradient(120% 90% at 30% 20%, rgba(255,255,255,.3), rgba(255,255,255,.06) 55%, rgba(255,255,255,.02));
+  box-shadow:inset 0 0 0 .6px rgba(255,255,255,.75), inset 1.5px 1.5px 1px -.5px rgba(255,255,255,.95), inset -1px -1.5px 1.5px -.5px rgba(0,0,0,.12), 0 3px 10px rgba(0,0,0,.16);
+  transition:transform .5s var(--lg-spring), background .18s ease, box-shadow .18s ease;
+}
+:root.lg .toggle.lg-dragging .sw::after{ transition:transform .08s linear, background .18s ease, box-shadow .18s ease; }
 
 /* ---------- press response: glass controls swell, everything else gives a little ---------- */
 :root.lg :is(.top .iconbtn, .top .btn){ transition:transform .5s var(--lg-spring); }
