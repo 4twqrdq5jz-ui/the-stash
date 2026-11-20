@@ -517,6 +517,8 @@ body.drawer-mode .sitefoot{ padding-left:22px; }
 .catchip:hover{ filter:brightness(.95); }
 .catchip.on{ background:var(--ink); color:var(--bg); }
 .catchips{ display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; margin-bottom:18px; scrollbar-width:none; }
+.catchcat{ display:inline-flex; flex:none; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:var(--surface-2); color:var(--ink); text-decoration:none; }
+.catchcat svg{ width:16px; height:16px; }
 .linkbtn{ color:var(--ink); font-weight:600; text-decoration:underline; font-size:inherit; }
 .models{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:4px 0 16px; }
 .mlabel{ font-weight:700; font-family:"Bricolage Grotesque",sans-serif; margin-right:2px; }

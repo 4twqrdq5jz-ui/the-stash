@@ -261,7 +261,7 @@ function renderHeader(){
     side.innerHTML = navLink("home","/","Home",IC.home) + navLink("channels","/channels/","Channels",IC.subs) + navLink("categories","/categories/","Categories",IC.cat) + navLink("library","/library/","Library",IC.lib) + navLink("upload","/upload/","Upload",IC.up) +
       (p ? navLink("me", profileUrl(p), "Your profile", IC.me) : "") + (App.isFounder() ? navLink("admin", "/admin/", "Admin", IC.admin) : "");
     const dn = $("#drawerNav"); if (dn) dn.innerHTML = side.innerHTML;
-    $("#bottomnav").innerHTML = navLink("home","/","Home",IC.home) + navLink("channels","/channels/","Channels",IC.subs) + navLink("categories","/categories/","Categories",IC.cat) + navLink("upload","/upload/","Upload",IC.up) + (p ? navLink("me", profileUrl(p), "You", IC.me) : navLink("library","/library/","Library",IC.lib));
+    $("#bottomnav").innerHTML = navLink("home","/","Home",IC.home) + navLink("channels","/channels/","Channels",IC.subs) + navLink("upload","/upload/","Upload",IC.up) + navLink("library","/library/","Library",IC.lib) + (p ? navLink("me", profileUrl(p), "You", IC.me) : "");
   }
 }
 
