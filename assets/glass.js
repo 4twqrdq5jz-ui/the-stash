@@ -234,8 +234,9 @@
     if (window.requestIdleCallback) requestIdleCallback(warm, { timeout:3000 }); else setTimeout(warm, 1500);
   }
 
-  /* ---------- touch light ---------- */
-  const LIT = ".top .iconbtn, .top .btn, .toast, .sp-big";
+  /* ---------- touch light, and a fainter hover light with a mouse ---------- */
+  const LIT = ".top .iconbtn, .top .btn, .toast, .sp-big, .lg-glass";
+  const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
   function light(el, e){ const r = el.getBoundingClientRect(); el.style.setProperty("--px", (e.clientX - r.left) + "px"); el.style.setProperty("--py", (e.clientY - r.top) + "px"); }
   document.addEventListener("pointerdown", e => {
     if (!on()) return;
@@ -245,8 +246,152 @@
     const up = () => { el.classList.remove("lg-pressed"); removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up); };
     addEventListener("pointermove", move, { passive:true }); addEventListener("pointerup", up); addEventListener("pointercancel", up);
   }, { passive:true });
+  // hover: one light update per frame at most
+  let hoverEl = null, hoverEv = null, hoverRaf = 0;
+  document.addEventListener("pointermove", e => {
+    if (!on() || !fine.matches || e.pointerType !== "mouse") return;
+    const el = e.target.closest && e.target.closest(LIT);
+    if (hoverEl && hoverEl !== el) hoverEl.classList.remove("lg-hover");
+    hoverEl = el; hoverEv = e;
+    if (el && !hoverRaf) hoverRaf = requestAnimationFrame(() => { hoverRaf = 0; if (hoverEl){ hoverEl.classList.add("lg-hover"); light(hoverEl, hoverEv); } });
+  }, { passive:true });
   // iOS Safari only applies :active when a touch listener exists
   document.addEventListener("touchstart", () => {}, { passive:true });
+
+  /* ---------- scroll-speed flare: a sheen crosses the tab bar while the page moves fast ---------- */
+  let flare = 0, flareRaf = 0, flareY = scrollY, flareT = 0, flareSet = -1;
+  function flareTick(t){
+    flareRaf = 0;
+    const nav = document.getElementById("bottomnav"); if (!nav) return;
+    const dt = flareT ? Math.max(8, t - flareT) : 16, v = Math.abs(scrollY - flareY) / dt;   // px per ms
+    flareY = scrollY; flareT = t;
+    flare += (Math.min(1, v / 2.5) - flare) * .3;
+    const out = flare < .02 ? 0 : Math.round(flare * 100) / 100;
+    if (out !== flareSet){ nav.style.setProperty("--lg-flare", out); flareSet = out; }
+    if (out > 0 || v > .05) flareRaf = requestAnimationFrame(flareTick); else flareT = 0;
+  }
+  addEventListener("scroll", () => { if (on() && !still.matches && !flareRaf) flareRaf = requestAnimationFrame(flareTick); }, { passive:true });
+
+  /* ---------- refraction (Chromium): an SVG displacement filter used as the backdrop ----------
+     The displacement map is built inside the filter for the surface's size: a flood exactly the size of the element,
+     blurred, falls off towards every edge; comparing copies offset left/right and up/down gives a map that is neutral
+     in the middle and points inward near the rim and corners. Displacing by it pulls the content behind the edges
+     inward and bends it like the shoulder of a lens. (In a backdrop filter Chromium won't draw feImage, and the
+     backdrop's own alpha runs on past the edges, so neither a map image nor SourceAlpha can shape it.) The red,
+     green and blue channels are displaced by slightly different amounts for a thin chromatic fringe.
+     Safari and Firefox can't use url() in backdrop-filter, so there --lg-refract stays unset (CSS has the fallback). */
+  const refractOK = !ios && /(Chrome|Chromium|Edg)\/\d/.test(navigator.userAgent) &&
+    !!(window.CSS && CSS.supports && CSS.supports("backdrop-filter", "url(#lg) blur(1px)"));
+  root.classList.toggle("lg-svg", refractOK);
+  const NS = "http://www.w3.org/2000/svg";
+  const filters = new Map(), registered = new Set(), dirty = new Set();
+  let defs = null, filterN = 0, ro = null, buildRaf = 0;
+  function defsEl(){
+    if (defs && defs.isConnected) return defs;
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
+    svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;pointer-events:none";
+    defs = document.createElementNS(NS, "defs"); svg.append(defs); document.body.append(svg);
+    return defs;
+  }
+  function filterFor(w, h, strength, bezel){
+    const key = [w, h, strength, bezel].join("x");
+    if (filters.has(key)) return filters.get(key);
+    if (filters.size >= 64) return null;   // plenty for a page; past that, surfaces keep the plain frosted look
+    const id = "lg-refract-" + (++filterN), sd = bezel / 2.5, off = Math.max(1, sd * .6), K = 2.6;
+    const el = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const a in attrs) n.setAttribute(a, attrs[a]); return n; };
+    const f = el("filter", { id, x:0, y:0, width:"100%", height:"100%", primitiveUnits:"userSpaceOnUse", "color-interpolation-filters":"sRGB" });
+    // edge ramp: a flood the size of the surface (origin is the element's top-left), blurred so it falls off at each edge
+    f.append(el("feFlood", { "flood-color":"#fff", "flood-opacity":1, x:0, y:0, width:w, height:h, result:"fl" }));
+    f.append(el("feGaussianBlur", { in:"fl", stdDeviation:sd, edgeMode:"none", result:"a" }));
+    // its slope across x and y, carried in alpha: 0.5 (no shift) in the middle, pointing inward at the rim.
+    // (Alpha, because colour channels get divided by alpha before the next step and would read as full strength.)
+    f.append(el("feOffset", { in:"a", dx:-off, result:"xl" }), el("feOffset", { in:"a", dx:off, result:"xr" }));
+    f.append(el("feComposite", { in:"xl", in2:"xr", operator:"arithmetic", k1:0, k2:K, k3:-K, k4:.5, result:"gx" }));
+    f.append(el("feOffset", { in:"a", dy:-off, result:"yt" }), el("feOffset", { in:"a", dy:off, result:"yb" }));
+    f.append(el("feComposite", { in:"yt", in2:"yb", operator:"arithmetic", k1:0, k2:K, k3:-K, k4:.5, result:"gy" }));
+    // move each slope out of alpha into the red / green channel of an opaque map
+    f.append(el("feColorMatrix", { in:"gx", type:"matrix", values:"0 0 0 1 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0 1", result:"rx" }));
+    f.append(el("feColorMatrix", { in:"gy", type:"matrix", values:"0 0 0 0 0  0 0 0 1 0  0 0 0 0 0  0 0 0 0 1", result:"ry" }));
+    f.append(el("feComposite", { in:"rx", in2:"ry", operator:"arithmetic", k1:0, k2:1, k3:1, k4:0, result:"map" }));
+    const channel = ["1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0", "0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0", "0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"];
+    [1, .94, .88].forEach((m, i) => {
+      f.append(el("feDisplacementMap", { in:"SourceGraphic", in2:"map", scale:strength * 2 * m, xChannelSelector:"R", yChannelSelector:"G", result:"d" + i }));
+      f.append(el("feColorMatrix", { in:"d" + i, type:"matrix", values:channel[i], result:"c" + i }));
+    });
+    f.append(el("feBlend", { in:"c0", in2:"c1", mode:"screen", result:"c01" }));
+    f.append(el("feBlend", { in:"c01", in2:"c2", mode:"screen" }));
+    defsEl().append(f);
+    filters.set(key, id);
+    return id;
+  }
+  function buildRefraction(el){
+    if (!el.isConnected){ registered.delete(el); if (ro) ro.unobserve(el); return; }
+    const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
+    if (w < 8 || h < 8) return;   // hidden for now; the ResizeObserver brings it back when it shows
+    const short = Math.min(w, h), set = parseFloat(getComputedStyle(el).getPropertyValue("--lg-refraction"));
+    const even = n => Math.max(0, Math.round(n / 2) * 2);
+    const strength = even(isNaN(set) ? Math.min(18, short * .3) : set);
+    const bezel = even(Math.min(22, Math.max(8, short * .35)));
+    const id = strength > 0 && filterFor(w, h, strength, bezel);
+    if (id) el.style.setProperty("--lg-refract", "url(#" + id + ")"); else el.style.removeProperty("--lg-refract");
+  }
+  function refract(el){
+    if (!refractOK || registered.has(el)) return;
+    registered.add(el);
+    if (!ro) ro = new ResizeObserver(entries => entries.forEach(e => queueBuild(e.target)));
+    ro.observe(el); queueBuild(el);
+  }
+  function queueBuild(el){
+    dirty.add(el);
+    if (!buildRaf) buildRaf = requestAnimationFrame(() => { buildRaf = 0; dirty.forEach(buildRefraction); dirty.clear(); });
+  }
+
+  /* ---------- the reusable primitive ----------
+     LiquidGlass.attach(el, { refraction, blur, tint, radius, specular, press }) turns any element into a glass surface;
+     the same works declaratively with data-glass (data-glass-refraction="20" data-glass-blur="12" …). The site's own
+     floating layers (tab bar, header controls, search, menus, sheets, toasts, drawer, player menu) are picked up
+     automatically and get refraction where supported. */
+  const FLOATING = ".bottomnav, .top .iconbtn, .top .btn.ghost, #searchBox, .lg-search-x, .menu, .toast, .modal, .drawer, .sp-menu";
+  const PROPS = { refraction:["--lg-refraction", "px"], blur:["--lg-blur", "px"], tint:["--lg-tint", ""], radius:["--lg-radius", "px"], specular:["--lg-specular", ""] };
+  function attach(el, opts){
+    opts = opts || {};
+    el.classList.add("lg-glass");
+    for (const k in PROPS){
+      const v = opts[k]; if (v == null || v === "") continue;
+      el.style.setProperty(PROPS[k][0], typeof v === "number" ? v + PROPS[k][1] : v);
+    }
+    if (opts.press) el.setAttribute("data-glass-press", "");
+    if (getComputedStyle(el).position === "static") el.style.position = "relative";
+    refract(el);
+    return () => detach(el);
+  }
+  function detach(el){
+    el.classList.remove("lg-glass", "lg-hover", "lg-pressed"); el.removeAttribute("data-glass-press");
+    for (const k in PROPS) el.style.removeProperty(PROPS[k][0]);
+    el.style.removeProperty("--lg-refract");
+    registered.delete(el); if (ro) ro.unobserve(el);
+  }
+  function fromData(el){
+    const d = el.dataset, num = v => (v != null && v !== "" && !isNaN(v) ? +v : v);
+    attach(el, { refraction:num(d.glassRefraction), blur:num(d.glassBlur), tint:d.glassTint, radius:num(d.glassRadius), specular:num(d.glassSpecular), press:"glassPress" in d });
+  }
+  function adopt(node){
+    if (node.nodeType !== 1) return;
+    if (node.matches("[data-glass]")) fromData(node); else if (node.matches(FLOATING)) refract(node);
+    if (node.firstElementChild){
+      node.querySelectorAll("[data-glass]").forEach(fromData);
+      node.querySelectorAll(FLOATING).forEach(refract);
+    }
+  }
+  function initGlassLayers(){
+    adopt(document.body);
+    new MutationObserver(muts => muts.forEach(m => {
+      m.addedNodes.forEach(adopt);
+      m.removedNodes.forEach(n => { if (n.nodeType === 1 && registered.has(n)){ registered.delete(n); if (ro) ro.unobserve(n); } });
+    })).observe(document.body, { childList:true, subtree:true });
+  }
+  window.LiquidGlass = { attach, detach, refraction:refractOK };
 
   /* ---------- search: the field grows out of the search button, a ✕ splits off, closing reverses it ----------
      Takes over core.js's dropdown toggle only while the glass is on; the form, input and submit are untouched. */
@@ -367,6 +512,7 @@
   function init(){
     restoreSnap();
     initToggles();
+    initGlassLayers();
     const nav = document.getElementById("bottomnav"); if (nav) initTabbar(nav);
     // the header is built by core.js after this runs; wait for its search button
     const top = document.getElementById("top");
